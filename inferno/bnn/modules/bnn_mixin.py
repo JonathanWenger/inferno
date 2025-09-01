@@ -43,21 +43,29 @@ class BNNMixin(abc.ABC):
                 layer.parametrization = self.parametrization
 
     def reset_parameters(self) -> None:
-        """Reset the parameters of the module and set the parametrization of all children
-        to the parametrization of the module.
+        """Reset the parameters of the module and its children (according to this module's parametrization)."""
+        # Check whether this module has any parameters itself (not just its children).
+        if len(list(self.parameters(recurse=False))) > 0 or any(
+            isinstance(child, (nn.ParameterDict, nn.ParameterList))
+            for child in self.children()
+        ):
+            raise NotImplementedError(
+                f"BNNMixin modules with parameters assigned to them must override 'reset_parameters()' "
+                "to define how parameters should be initialized (depending on the parametrization). "
+                "Be sure to also reset the parameters of any child modules according to the parametrization."
+            )
 
-        This method should be implemented by subclasses to reset the parameters of the module.
-        """
-        for layer in self.children():
-            if isinstance(layer, BNNMixin):
+        for child in self.children():
+            if isinstance(child, BNNMixin):
                 # Set the parametrization of all children to the parametrization of the parent module.
-                layer.parametrization = self.parametrization
-                # Initialize the parameters of the child module.
-                layer.reset_parameters()
+                child.parametrization = self.parametrization
+
+                # Reset the parameters of the child module.
+                child.reset_parameters()
             else:
-                if hasattr(layer, "reset_parameters"):
+                if hasattr(child, "reset_parameters"):
                     reset_parameters_of_torch_module(
-                        layer, parametrization=self.parametrization
+                        child, parametrization=self.parametrization
                     )
 
     def named_parameter_groups(
@@ -74,15 +82,21 @@ class BNNMixin(abc.ABC):
         """
         prefix = prefix + "." if prefix != "" else prefix
 
+        # Check whether this module has any parameters itself (not just its children).
+        if len(list(self.parameters(recurse=False))) > 0 or any(
+            isinstance(child, (nn.ParameterDict, nn.ParameterList))
+            for child in self.children()
+        ):
+            raise NotImplementedError(
+                f"BNNMixin modules with parameters assigned to them must override 'named_parameter_groups()' "
+                "to define how parameters should be grouped for optimization and which learning rate scaling "
+                "should be used according to the parametrization."
+            )
+
         # Cycle through all children of the module and get their parameter groups.
         for name, child in self.named_children():
 
             if isinstance(child, BNNMixin):
-                if len(list(self.parameters(recurse=False))) > 0:
-                    raise NotImplementedError(
-                        "BNNMixin modules with direct parameters must override '.named_parameter_groups()'."
-                    )
-
                 # Recurse all the way to leaf modules.
                 yield from child.named_parameter_groups(
                     groupby=groupby,
@@ -186,7 +200,7 @@ def reset_parameters_of_torch_module(
                 fan_in=fan_in, fan_out=fan_out, layer_type="hidden"
             ),
         )
-        if module.bias is not None:
+        if hasattr(module, "bias") and module.bias is not None:
             nn.init.normal_(
                 module.bias,
                 mean=0,
