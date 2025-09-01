@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Iterator, Literal
 
 import torch
 from torch import nn
@@ -114,59 +114,88 @@ class Linear(BNNMixin, nn.Module):
             nn.init.constant_(self.params.temperature, 1.0)
             self.params.temperature.requires_grad = False
 
-    def parameters_and_lrs(
+    def named_parameter_groups(
         self,
-        lr: float,
-        optimizer: Literal["SGD", "Adam"] = "SGD",
-    ) -> list[dict[str, Tensor | float]]:
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(self.params.weight)
+        groupby: Literal["module"] | None = None,
+        prefix: str = "",
+        **kwargs,
+    ) -> Iterator[tuple[str, dict[str, Tensor | float]]]:
+        prefix = prefix + "." if prefix != "" else prefix
 
-        # Weights
-        mean_parameter_lr_scales = {}
-        mean_parameter_lr_scales["weight"] = self.parametrization.weight_lr_scale(
-            fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
-        )
-        param_groups = [
-            {
-                "name": "params.weight",
-                "params": self.params.weight,
+        if groupby == "module":
+            # Weight and bias
+            param_list = [self.params.weight]
+            if self.params.bias is not None:
+                param_list.append(self.params.bias)
+            if hasattr(self.params, "temperature"):
+                param_list.append(self.params.temperature)
+            yield prefix + "params", {"params": param_list, **kwargs}
+
+            # Covariance parameters
+            if self.params.cov is not None:
+                yield prefix + "params.cov", {
+                    "params": list(self.params.cov.parameters()),
+                    **kwargs,
+                }
+
+        elif (
+            groupby is None
+        ):  # Each group has a single parameter (with its own learning rate scaling).
+            fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(self.params.weight)
+
+            try:
+                optimizer = kwargs["optimizer"]
+                lr = kwargs["lr"]
+            except KeyError as e:
+                raise ValueError(
+                    "Must provide 'optimizer' and 'lr' arguments when not grouping parameters."
+                ) from e
+
+            # Weights
+            mean_parameter_lr_scales = {}
+            mean_parameter_lr_scales["weight"] = self.parametrization.weight_lr_scale(
+                fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
+            )
+            yield prefix + "params.weight", {
+                "params": [self.params.weight],
                 "lr": lr * mean_parameter_lr_scales["weight"],
                 "layer_type": self.layer_type,
             }
-        ]
 
-        # Bias
-        if self.params.bias is not None:
-            mean_parameter_lr_scales["bias"] = self.parametrization.bias_lr_scale(
-                fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
-            )
-            param_groups += [
-                {
-                    "name": "params.bias",
-                    "params": self.params.bias,
+            # Bias
+            if self.params.bias is not None:
+                mean_parameter_lr_scales["bias"] = self.parametrization.bias_lr_scale(
+                    fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
+                )
+                yield prefix + "params.bias", {
+                    "params": [self.params.bias],
                     "lr": lr * mean_parameter_lr_scales["bias"],
                     "layer_type": self.layer_type,
                 }
-            ]
 
-        # Covariance
-        if self.params.cov is not None:
-            for name, param in self.params.cov.named_parameters():
-                lr_scaling = 1.0
-                if "weight" in name:
-                    lr_scaling = mean_parameter_lr_scales["weight"]
-                elif "bias" in name:
-                    lr_scaling = mean_parameter_lr_scales["bias"]
-                param_groups += [
-                    {
-                        "name": "params.cov." + name,
-                        "params": param,
+            # Covariance
+            if self.params.cov is not None:
+                for name, param in self.params.cov.named_parameters():
+                    lr_scaling = 1.0
+                    if "weight" in name:
+                        lr_scaling = mean_parameter_lr_scales["weight"]
+                    elif "bias" in name:
+                        lr_scaling = mean_parameter_lr_scales["bias"]
+                    yield prefix + "params.cov." + name, {
+                        "params": [param],
                         "lr": lr * lr_scaling * self.params.cov.lr_scaling[name],
                         "layer_type": self.layer_type,
                     }
-                ]
 
-        return param_groups
+            # Temperature parameter
+            if hasattr(self.params, "temperature"):
+                yield prefix + "params.temperature", {
+                    "params": [self.params.temperature],
+                    "lr": lr,
+                    "layer_type": self.layer_type,
+                }
+        else:
+            raise NotImplementedError(f"Cannot group parameters by '{groupby}'.")
 
     def forward(
         self,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Callable, Iterator, Literal
 
 import torch
 from torch import nn
@@ -60,36 +60,77 @@ class BNNMixin(abc.ABC):
                         layer, parametrization=self.parametrization
                     )
 
+    def named_parameter_groups(
+        self,
+        groupby: Literal["module"] | None = None,
+        prefix: str = "",
+        **kwargs,
+    ) -> Iterator[tuple[str, dict[str, Tensor | float]]]:
+        """Return the parameters of a module sorted into named groups.
+
+        :param groupby: Whether to group the parameters and how.
+        :param prefix: Prefix to add to the names of the parameter groups in the returned list.
+        :param **kwargs: Additional arguments passed onto the optimizer such as learning rate, momentum, etc.
+        """
+        prefix = prefix + "." if prefix != "" else prefix
+
+        # Cycle through all children of the module and get their parameter groups.
+        for name, child in self.named_children():
+
+            if isinstance(child, BNNMixin):
+                if len(list(self.parameters(recurse=False))) > 0:
+                    raise NotImplementedError(
+                        "BNNMixin modules with direct parameters must override '.named_parameter_groups()'."
+                    )
+
+                # Recurse all the way to leaf modules.
+                yield from child.named_parameter_groups(
+                    groupby=groupby,
+                    prefix=prefix + name,
+                    **kwargs,
+                )
+            else:
+                # For torch modules we may need the parametrization of the parent to set learning rates.
+                kwargs["parametrization"] = self.parametrization
+                # For torch leaf modules, return parameter groups.
+                yield from named_parameter_groups_of_torch_module(
+                    child,
+                    groupby=groupby,
+                    prefix=prefix + name,
+                    **kwargs,
+                )
+
+    def parameter_groups(
+        self,
+        groupby: Literal["module"] | None = None,
+        prefix: str = "",
+        **kwargs,
+    ) -> Iterator[dict[str, Tensor | float]]:
+        """Return the parameters of a module sorted into groups.
+
+        :param groupby: Whether to group the parameters and how.
+        :param prefix: Prefix to add to the names of the parameter groups in the returned list.
+        :param **kwargs: Additional arguments passed onto the optimizer such as learning rate, momentum, etc.
+        """
+        for _, param_group in self.named_parameter_groups(
+            groupby=groupby, prefix=prefix, **kwargs
+        ):
+            yield param_group
+
     def parameters_and_lrs(
         self,
         lr: float,
-        optimizer: Literal["SGD", "Adam"],
+        optimizer: Literal["SGD", "Adam"] = "SGD",
+        prefix: str = "",
     ) -> list[dict[str, Tensor | float]]:
         """Get the parameters of the module and their learning rates for the chosen optimizer
         and the parametrization of the module.
 
         :param lr: The global learning rate.
         :param optimizer: The optimizer being used.
+        :param prefix: Prefix to add to the names of the parameter groups in the returned list.
         """
-        param_groups = []
-
-        # Cycle through all children of the module and get their parameters and learning rates
-        for layer in self.children():
-
-            # For layers with leaf parameters, return them with adjusted learning rate based on
-            # the parametrization.
-            if isinstance(layer, BNNMixin):
-                param_groups += layer.parameters_and_lrs(lr=lr, optimizer=optimizer)
-            else:
-                if len(list(layer.parameters())) > 0:
-                    param_groups += parameters_and_lrs_of_torch_module(
-                        layer,
-                        lr=lr,
-                        parametrization=self.parametrization,
-                        optimizer=optimizer,
-                    )
-
-        return param_groups
+        return list(self.parameter_groups(prefix=prefix, optimizer=optimizer, lr=lr))
 
     def forward(
         self,
@@ -133,23 +174,8 @@ def reset_parameters_of_torch_module(
         module,
         (nn.LayerNorm, nn.GroupNorm, nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d),
     ):
-        # No need to reset parameters of layer norm according to Appendix B.1 of http://arxiv.org/abs/2203.03466
-        return
-        # nn.init.normal_(
-        #     module.weight,
-        #     mean=0,
-        #     std=parametrization.weight_init_scale(
-        #         fan_in=1.0, fan_out=None, layer_type="input"
-        #     ),
-        # )
-        # if module.bias is not None:
-        #     nn.init.normal_(
-        #         module.bias,
-        #         mean=0,
-        #         std=parametrization.bias_init_scale(
-        #             fan_in=1.0, fan_out=None, layer_type="input"
-        #         ),
-        #     )
+        # No need to change parameter initialization of layer norm according to Appendix B.1 of http://arxiv.org/abs/2203.03466
+        module.reset_parameters()
     elif "weight" in module_parameter_names:
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
 
@@ -175,91 +201,109 @@ def reset_parameters_of_torch_module(
         )
 
 
-def parameters_and_lrs_of_torch_module(
+def named_parameter_groups_of_torch_module(
     module: nn.Module,
-    /,
-    lr: float,
-    parametrization: Parametrization,
-    optimizer: Literal["SGD", "Adam"],
-) -> list[dict[str, Tensor | float]]:
-    """Get the parameters and their learning rates for the chosen parametrization and optimizer.
+    groupby: Literal["module"] | None = None,
+    prefix: str = "",
+    **kwargs,
+) -> Iterator[tuple[str, dict[str, Tensor | float]]]:
 
-    :param module: The torch.nn.Module to get the parameters and learning rates of.
-    :param lr: The global learning rate.
-    :param parametrization: The parametrization to use.
-    :param optimizer: The optimizer being used.
-    """
-    param_groups = []
-    module_parameter_names = [param_name for param_name, _ in module.named_parameters()]
-    if len(module_parameter_names) == 0:
-        pass
-    elif isinstance(
-        module,
-        (
-            nn.LayerNorm,
-            nn.GroupNorm,
-            nn.BatchNorm1d,
-            nn.BatchNorm2d,
-            nn.BatchNorm3d,
-        ),
-    ):
-        fan_out = module.weight.shape.numel()
-        param_groups + [
-            {
-                "params": module.weight,
-                "lr": lr
-                * parametrization.weight_lr_scale(
-                    fan_in=1.0,
-                    fan_out=fan_out,
-                    optimizer=optimizer,
-                    layer_type="input",
+    prefix = prefix + "." if prefix != "" else prefix
+
+    # Direct parameters
+    direct_parameters = {
+        name: param for name, param in module.named_parameters(recurse=False)
+    }
+    if len(direct_parameters) > 0:
+        if groupby == "module":
+            yield prefix + "params", {"params": direct_parameters, **kwargs}
+        elif groupby is None:
+            # Each group has a single parameter (with its own learning rate scaling).
+            try:
+                optimizer = kwargs["optimizer"]
+                lr = kwargs["lr"]
+                parametrization = kwargs["parametrization"]
+            except KeyError as e:
+                raise ValueError(
+                    "Must provide 'optimizer', 'lr' and 'parametrization' arguments when not grouping parameters."
+                ) from e
+
+            if isinstance(
+                module,
+                (
+                    nn.LayerNorm,
+                    nn.GroupNorm,
+                    nn.BatchNorm1d,
+                    nn.BatchNorm2d,
+                    nn.BatchNorm3d,
                 ),
-            }
-        ]
-
-        if module.bias is not None:
-            param_groups + [
-                {
-                    "params": module.bias,
+            ):
+                fan_out = module.weight.shape.numel()
+                yield prefix + "weight", {
+                    "params": [module.weight],
                     "lr": lr
-                    * parametrization.bias_lr_scale(
+                    * parametrization.weight_lr_scale(
                         fan_in=1.0,
                         fan_out=fan_out,
                         optimizer=optimizer,
                         layer_type="input",
                     ),
                 }
-            ]
-    elif "weight" in module_parameter_names:
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
 
-        param_groups + [
-            {
-                "params": module.weight,
-                "lr": lr
-                * parametrization.weight_lr_scale(
-                    fan_in=fan_in, fan_out=fan_out, optimizer=optimizer
-                ),
-            }
-        ]
+                if "bias" in direct_parameters and module.bias is not None:
+                    yield prefix + "bias", {
+                        "params": [module.bias],
+                        "lr": lr
+                        * parametrization.bias_lr_scale(
+                            fan_in=1.0,
+                            fan_out=fan_out,
+                            optimizer=optimizer,
+                            layer_type="input",
+                        ),
+                    }
+            elif "weight" in direct_parameters:
+                fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
 
-        if module.bias is not None:
-            param_groups + [
-                {
-                    "params": module.bias,
+                yield prefix + "weight", {
+                    "params": [module.weight],
                     "lr": lr
-                    * parametrization.bias_lr_scale(
+                    * parametrization.weight_lr_scale(
                         fan_in=fan_in, fan_out=fan_out, optimizer=optimizer
                     ),
                 }
-            ]
-    else:
-        raise NotImplementedError(
-            f"Cannot set learning rates of module: {module.__class__.__name__} "
-            f"according to the {parametrization.__class__.__name__} parametrization."
-        )
 
-    return param_groups
+                if "bias" in direct_parameters and module.bias is not None:
+                    yield prefix + "bias", {
+                        "params": [module.bias],
+                        "lr": lr
+                        * parametrization.bias_lr_scale(
+                            fan_in=fan_in, fan_out=fan_out, optimizer=optimizer
+                        ),
+                    }
+
+            else:
+                raise NotImplementedError(
+                    f"Cannot set learning rates of module: {module.__class__.__name__} "
+                    f"according to the {parametrization.__class__.__name__} parametrization."
+                )
+        else:
+            raise NotImplementedError(f"Cannot group parameters by '{groupby}'.")
+
+    # Cycle through all children of the module and get their parameter groups.
+    for name, child in module.named_children():
+        if isinstance(child, BNNMixin):
+            yield from child.named_parameter_groups(
+                groupby=groupby,
+                prefix=prefix + name,
+                **kwargs,
+            )
+        else:
+            yield from named_parameter_groups_of_torch_module(
+                child,
+                groupby=groupby,
+                prefix=prefix + name,
+                **kwargs,
+            )
 
 
 def batched_forward(obj: nn.Module, num_batch_dims: int) -> Callable[

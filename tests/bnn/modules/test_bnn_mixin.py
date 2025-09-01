@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from inferno import bnn
+from inferno import bnn, models
 
 import pytest
 
@@ -58,3 +58,48 @@ def test_mixin_allows_setting_parametrization(
     my_bnn_module = MyBNNModule(**kwargs, parametrization=parametrization)
 
     assert isinstance(my_bnn_module.parametrization, parametrization.__class__)
+
+
+class NNModuleWithSubmodules(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.layer0 = bnn.Linear(3, 2)
+        self.layer1 = nn.Linear(2, 1)
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        bnn.Linear(5, 2),
+        bnn.Linear(5, 2, bias=False),
+        bnn.Linear(6, 3, cov=bnn.params.LowRankCovariance(2)),
+        models.MLP(
+            in_size=5,
+            hidden_sizes=[8, 8, 8],
+            out_size=1,
+            cov=[
+                bnn.params.FactorizedCovariance(),
+                None,
+                None,
+                bnn.params.FactorizedCovariance(),
+            ],
+            bias=True,
+        ),
+        bnn.Sequential(
+            NNModuleWithSubmodules(),
+            NNModuleWithSubmodules(),
+            parametrization=bnn.params.SP(),
+        ),
+    ],
+)
+@pytest.mark.parametrize("kwargs", [{"lr": 0.1, "optimizer": "SGD"}])
+def test_named_parameter_groups_returns_all_parameters(
+    module: bnn.BNNMixin, kwargs: dict
+):
+    params_via_parameter_groups = {
+        name: group
+        for name, group in module.named_parameter_groups(groupby=None, **kwargs)
+    }
+
+    assert len(list(module.parameters())) == len(params_via_parameter_groups)

@@ -163,7 +163,10 @@ class _ConvNd(BNNMixin, nn.Module):
         self,
         lr: float,
         optimizer: Literal["SGD", "Adam"] = "SGD",
+        prefix: str = "",
     ) -> list[dict[str, Tensor | float]]:
+        prefix = prefix + "." if prefix != "" else prefix
+
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(self.params.weight)
 
         # Weights
@@ -173,7 +176,7 @@ class _ConvNd(BNNMixin, nn.Module):
         )
         param_groups = [
             {
-                "name": "params.weight",
+                "name": prefix + "params.weight",
                 "params": self.params.weight,
                 "lr": lr * mean_parameter_lr_scales["weight"],
             }
@@ -186,7 +189,7 @@ class _ConvNd(BNNMixin, nn.Module):
             )
             param_groups += [
                 {
-                    "name": "params.bias",
+                    "name": prefix + "params.bias",
                     "params": self.params.bias,
                     "lr": lr * mean_parameter_lr_scales["bias"],
                 }
@@ -202,7 +205,7 @@ class _ConvNd(BNNMixin, nn.Module):
                     lr_scaling = mean_parameter_lr_scales["bias"]
                 param_groups += [
                     {
-                        "name": "params.cov." + name,
+                        "name": prefix + "params.cov." + name,
                         "params": param,
                         "lr": lr * lr_scaling * self.params.cov.lr_scaling[name],
                     }
