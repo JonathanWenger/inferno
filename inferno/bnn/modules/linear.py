@@ -129,11 +129,16 @@ class Linear(BNNMixin, nn.Module):
                 param_list.append(self.params.bias)
             if hasattr(self.params, "temperature"):
                 param_list.append(self.params.temperature)
-            yield prefix + "params", {"params": param_list, **kwargs}
+            yield prefix + "params", {
+                "name": prefix + "params",
+                "params": param_list,
+                **kwargs,
+            }
 
             # Covariance parameters
             if self.params.cov is not None:
                 yield prefix + "params.cov", {
+                    "name": prefix + "params.cov",
                     "params": list(self.params.cov.parameters()),
                     **kwargs,
                 }
@@ -157,6 +162,7 @@ class Linear(BNNMixin, nn.Module):
                 fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
             )
             yield prefix + "params.weight", {
+                "name": prefix + "params.weight",
                 "params": [self.params.weight],
                 "lr": lr * mean_parameter_lr_scales["weight"],
                 "layer_type": self.layer_type,
@@ -168,6 +174,7 @@ class Linear(BNNMixin, nn.Module):
                     fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
                 )
                 yield prefix + "params.bias", {
+                    "name": prefix + "params.bias",
                     "params": [self.params.bias],
                     "lr": lr * mean_parameter_lr_scales["bias"],
                     "layer_type": self.layer_type,
@@ -182,6 +189,7 @@ class Linear(BNNMixin, nn.Module):
                     elif "bias" in name:
                         lr_scaling = mean_parameter_lr_scales["bias"]
                     yield prefix + "params.cov." + name, {
+                        "name": prefix + "params.cov." + name,
                         "params": [param],
                         "lr": lr * lr_scaling * self.params.cov.lr_scaling[name],
                         "layer_type": self.layer_type,
@@ -190,6 +198,7 @@ class Linear(BNNMixin, nn.Module):
             # Temperature parameter
             if hasattr(self.params, "temperature"):
                 yield prefix + "params.temperature", {
+                    "name": prefix + "params.temperature",
                     "params": [self.params.temperature],
                     "lr": lr,
                     "layer_type": self.layer_type,

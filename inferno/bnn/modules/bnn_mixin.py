@@ -229,8 +229,14 @@ def named_parameter_groups_of_torch_module(
         name: param for name, param in module.named_parameters(recurse=False)
     }
     if len(direct_parameters) > 0:
+        # Parametrization is not needed when grouping by module.
         if groupby == "module":
-            yield prefix + "params", {"params": direct_parameters, **kwargs}
+            kwargs.pop("parametrization", None)
+            yield prefix + "params", {
+                "name": prefix + "params",
+                "params": direct_parameters,
+                **kwargs,
+            }
         elif groupby is None:
             # Each group has a single parameter (with its own learning rate scaling).
             try:
@@ -254,6 +260,7 @@ def named_parameter_groups_of_torch_module(
             ):
                 fan_out = module.weight.shape.numel()
                 yield prefix + "weight", {
+                    "name": prefix + "weight",
                     "params": [module.weight],
                     "lr": lr
                     * parametrization.weight_lr_scale(
@@ -266,6 +273,7 @@ def named_parameter_groups_of_torch_module(
 
                 if "bias" in direct_parameters and module.bias is not None:
                     yield prefix + "bias", {
+                        "name": prefix + "bias",
                         "params": [module.bias],
                         "lr": lr
                         * parametrization.bias_lr_scale(
@@ -279,6 +287,7 @@ def named_parameter_groups_of_torch_module(
                 fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
 
                 yield prefix + "weight", {
+                    "name": prefix + "weight",
                     "params": [module.weight],
                     "lr": lr
                     * parametrization.weight_lr_scale(
@@ -288,6 +297,7 @@ def named_parameter_groups_of_torch_module(
 
                 if "bias" in direct_parameters and module.bias is not None:
                     yield prefix + "bias", {
+                        "name": prefix + "bias",
                         "params": [module.bias],
                         "lr": lr
                         * parametrization.bias_lr_scale(
