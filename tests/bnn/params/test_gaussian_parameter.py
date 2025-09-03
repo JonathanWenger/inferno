@@ -13,9 +13,15 @@ import pytest
     "mean",
     [
         {"weight": torch.randn(4, 2), "bias": torch.randn(4)},
+        {"bias": torch.randn(4), "weight": torch.randn(4, 2)},
         {"weight": torch.randn(4, 2), "bias": None},
         {"weight": torch.randn(1, 1)},
         {"weight": torch.randn(3, 2, 1, 2), "bias": torch.randn((3,))},
+        {
+            "weight0": torch.randn(3, 2),
+            "weight1": torch.randn(5, 2),
+            "weight2": torch.randn(2),
+        },
     ],
 )
 @pytest.mark.parametrize(
@@ -30,7 +36,12 @@ import pytest
 )
 def test_sample(mean, cov):
     """Test sampling from a Gaussian parameter."""
-    torch.random.manual_seed(463)
+    torch.random.manual_seed(2456)
+
+    if "weight" not in mean and isinstance(cov, params.KroneckerCovariance):
+        pytest.skip(
+            "Kronecker covariances currently only support layers with weight (and bias) parameters."
+        )
 
     # Initialize the Gaussian parameter
     cov = copy.deepcopy(cov)

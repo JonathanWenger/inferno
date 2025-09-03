@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Iterator, Literal
 
 import torch
@@ -109,14 +110,17 @@ class _ConvNd(BNNMixin, nn.Module):
             if transposed
             else (out_channels, in_channels // groups, *kernel_size)
         )
-        mean_param_dict = {
-            **{"weight": torch.empty(weight_shape, **factory_kwargs)},
-            **(
-                {"bias": torch.empty(out_channels, **factory_kwargs)}
-                if bias
-                else {"bias": None}
-            ),
-        }
+        mean_param_dict = OrderedDict(
+            [
+                ("weight", torch.empty(weight_shape, **factory_kwargs)),
+                (
+                    ("bias", torch.empty(out_channels, **factory_kwargs))
+                    if bias
+                    else ("bias", None)
+                ),
+            ]
+        )
+
         if cov is None:
             self.params = nn.ParameterDict(mean_param_dict)
             self.params.cov = None
@@ -143,16 +147,17 @@ class _ConvNd(BNNMixin, nn.Module):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(self.params.weight)
 
         # Mean parameters
-        mean_parameter_scales = {}
-        mean_parameter_scales["weight"] = self.parametrization.weight_init_scale(
-            fan_in, fan_out, layer_type=self.layer_type
-        )
+        mean_parameter_scales = {
+            "weight": self.parametrization.weight_init_scale(
+                fan_in, fan_out, layer_type=self.layer_type
+            ),
+            "bias": self.parametrization.bias_init_scale(
+                fan_in, fan_out, layer_type=self.layer_type
+            ),
+        }
         nn.init.normal_(self.params.weight, mean=0, std=mean_parameter_scales["weight"])
 
         if self.params.bias is not None:
-            mean_parameter_scales["bias"] = self.parametrization.bias_init_scale(
-                fan_in, fan_out, layer_type=self.layer_type
-            )
             nn.init.normal_(self.params.bias, mean=0, std=mean_parameter_scales["bias"])
 
         # Covariance parameters
@@ -161,67 +166,37 @@ class _ConvNd(BNNMixin, nn.Module):
 
     def named_parameter_groups(
         self,
-        groupby: Literal["module"] | None = None,
+        optimizer: Literal["SGD", "Adam", "NGD"],
+        lr: float | None = None,
         prefix: str = "",
-        **kwargs,
     ) -> Iterator[tuple[str, dict[str, Tensor | float]]]:
         prefix = prefix + "." if prefix != "" else prefix
 
-        if groupby == "module":
-            # Weight and bias
-            param_list = [self.params.weight]
-            if self.params.bias is not None:
-                param_list.append(self.params.bias)
-            if hasattr(self.params, "temperature"):
-                param_list.append(self.params.temperature)
-            yield prefix + "params", {
-                "name": prefix + "params",
-                "params": param_list,
-                **kwargs,
-            }
-
-            # Covariance parameters
-            if self.params.cov is not None:
-                yield prefix + "params.cov", {
-                    "name": prefix + "params.cov",
-                    "params": list(self.params.cov.parameters()),
-                    **kwargs,
-                }
-
-        elif (
-            groupby is None
-        ):  # Each group has a single parameter (with its own learning rate scaling).
+        if optimizer in ["SGD", "Adam"]:
+            # Each group has a single parameter (with its own learning rate scaling).
             fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(self.params.weight)
 
-            try:
-                optimizer = kwargs["optimizer"]
-                lr = kwargs["lr"]
-            except KeyError as e:
-                raise ValueError(
-                    "Must provide 'optimizer' and 'lr' arguments when not grouping parameters."
-                ) from e
-
-            # Weights
-            mean_parameter_lr_scales = {}
-            mean_parameter_lr_scales["weight"] = self.parametrization.weight_lr_scale(
-                fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
-            )
-            yield prefix + "params.weight", {
-                "name": prefix + "params.weight",
-                "params": [self.params.weight],
-                "lr": lr * mean_parameter_lr_scales["weight"],
-                "layer_type": self.layer_type,
+            # Weight and bias
+            mean_parameter_lr_scales = {
+                "weight": self.parametrization.weight_lr_scale(
+                    fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
+                ),
+                "bias": self.parametrization.bias_lr_scale(
+                    fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
+                ),
             }
 
-            # Bias
-            if self.params.bias is not None:
-                mean_parameter_lr_scales["bias"] = self.parametrization.bias_lr_scale(
-                    fan_in, fan_out, optimizer=optimizer, layer_type=self.layer_type
-                )
-                yield prefix + "params.bias", {
-                    "name": prefix + "params.bias",
-                    "params": [self.params.bias],
-                    "lr": lr * mean_parameter_lr_scales["bias"],
+            for name, param in self.params.named_parameters(recurse=False):
+                lr_scaling = 1.0
+                if "weight" in name:
+                    lr_scaling = mean_parameter_lr_scales["weight"]
+                elif "bias" in name:
+                    lr_scaling = mean_parameter_lr_scales["bias"]
+                yield prefix + "params." + name, {
+                    "param_names": [prefix + "params." + name],
+                    "module": prefix[:-1] if prefix.endswith(".") else prefix,
+                    "params": [param],
+                    "lr": lr * lr_scaling,
                     "layer_type": self.layer_type,
                 }
 
@@ -234,11 +209,48 @@ class _ConvNd(BNNMixin, nn.Module):
                     elif "bias" in name:
                         lr_scaling = mean_parameter_lr_scales["bias"]
                     yield prefix + "params.cov." + name, {
-                        "name": prefix + "params.cov." + name,
+                        "param_names": [prefix + "params.cov." + name],
+                        "module": prefix[:-1] if prefix.endswith(".") else prefix,
                         "params": [param],
                         "lr": lr * lr_scaling * self.params.cov.lr_scaling[name],
                         "layer_type": self.layer_type,
                     }
+        elif optimizer == "NGD":
+            # Weight and bias
+            named_params = {
+                prefix + "params." + name: param
+                for name, param in self.params.named_parameters(recurse=False)
+                if param.requires_grad
+            }
+            yield prefix + "params", {
+                "param_names": list(named_params.keys()),
+                "module": prefix[:-1] if prefix.endswith(".") else prefix,
+                "params": list(named_params.values()),
+                "cov_params": (
+                    list(self.params.cov.parameters())
+                    if self.params.cov is not None
+                    else None
+                ),
+                "lr": lr,
+            }
+
+            # Covariance parameters
+            if self.params.cov is not None:
+                named_cov_params = {
+                    prefix + "params.cov." + name: param
+                    for name, param in self.params.cov.named_parameters()
+                    if param.requires_grad
+                }
+                yield prefix + "params.cov", {
+                    "param_names": list(named_cov_params.keys()),
+                    "module": prefix[:-1] if prefix.endswith(".") else prefix,
+                    "params": list(named_cov_params.values()),
+                    "lr": lr,
+                }
+        else:
+            raise ValueError(
+                f"Unknown optimizer '{optimizer}'. Cannot group parameters accordingly."
+            )
 
     def extra_repr(self):
         s = (

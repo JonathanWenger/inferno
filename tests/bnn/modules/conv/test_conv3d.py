@@ -296,7 +296,7 @@ def test_covariance_parameter_initialization(
     parametrization, layer_type, layer_width, cov
 ):
     """Test whether the initialization of the covariance parameters is correct."""
-    torch.manual_seed(2452345)
+    torch.manual_seed(13426)
 
     with torch.no_grad():
         linear_layer = bnn.Conv3d(

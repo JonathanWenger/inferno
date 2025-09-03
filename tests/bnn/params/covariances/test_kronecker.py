@@ -1,3 +1,5 @@
+import math
+
 from numpy import testing as npt
 import torch
 
@@ -58,20 +60,30 @@ def test_factor_matmul(sample_shape, covariance, mean_parameters):
     result_dense_kron = (kronecker_product_of_factors @ input.unsqueeze(-1)).squeeze(-1)
 
     dense_matmul_result_dict = {}
-    starting_idx_weight_result = 0
-    if "bias" in mean_parameters.keys():
-        dense_matmul_result_dict["bias"] = result_dense_kron[
-            ..., : covariance.output_factor.shape[0]
-        ]
-        starting_idx_weight_result = covariance.output_factor.shape[0]
-    if "weight" in mean_parameters.keys():
-        dense_matmul_result_dict["weight"] = result_dense_kron[
-            ..., starting_idx_weight_result:
-        ].view(
-            *sample_shape,
-            covariance.output_factor.shape[0],
-            *mean_parameters["weight"].shape[1:],
-        )
+    start_idx_param_result = 0
+    for name in mean_parameters.keys():
+        if name == "weight":
+            end_idx_param_result = (
+                start_idx_param_result
+                + covariance.output_factor.shape[0]
+                * math.prod(covariance.input_factor[name].shape[:-1])
+            )
+            dense_matmul_result_dict[name] = result_dense_kron[
+                ..., start_idx_param_result:end_idx_param_result
+            ].view(
+                *sample_shape,
+                covariance.output_factor.shape[0],
+                *covariance.input_factor[name].shape[:-1],
+            )
+        elif name == "bias" and covariance.input_factor["bias"] is not None:
+            end_idx_param_result = (
+                start_idx_param_result + covariance.output_factor.shape[0]
+            )
+            dense_matmul_result_dict[name] = result_dense_kron[
+                ..., start_idx_param_result:end_idx_param_result
+            ]
+
+        start_idx_param_result = end_idx_param_result
 
     for name, tens in matmul_result_dict.items():
         npt.assert_allclose(

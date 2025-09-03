@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 import math
 from typing import TYPE_CHECKING
 
@@ -48,19 +49,24 @@ class FactorizedCovariance(nn.Module):
 
         # Initialize factor parameters
         self.factor = nn.ParameterDict(
-            {
-                name: (
-                    torch.empty(
-                        *param.shape,
-                        self.rank,
-                        dtype=param.dtype,
-                        device=param.device,
+            OrderedDict(
+                [
+                    (
+                        name,
+                        (
+                            torch.empty(
+                                *param.shape,
+                                self.rank,
+                                dtype=param.dtype,
+                                device=param.device,
+                            )
+                            if param is not None
+                            else None
+                        ),
                     )
-                    if param is not None
-                    else None
-                )
-                for name, param in mean_parameters.items()
-            }
+                    for name, param in mean_parameters.items()
+                ]
+            )
         )
 
     def reset_parameters(

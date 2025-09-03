@@ -67,7 +67,7 @@ class NNModuleWithSubmodules(nn.Module):
     def __init__(self):
         super().__init__()
         self.layer0 = bnn.Linear(3, 2)
-        self.layer1 = nn.Linear(2, 1)
+        self.layer1 = bnn.Linear(2, 1)
 
 
 @pytest.mark.parametrize(
@@ -97,58 +97,22 @@ class NNModuleWithSubmodules(nn.Module):
     ],
     ids=lambda c: c.__class__.__name__,
 )
-@pytest.mark.parametrize("kwargs", [{"lr": 0.1, "optimizer": "SGD"}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"lr": 0.1, "optimizer": "SGD"},
+        {"lr": 0.1, "optimizer": "NGD"},
+    ],
+    ids=lambda x: x["optimizer"],
+)
 def test_named_parameter_groups_returns_all_parameters(
     module: bnn.BNNMixin, kwargs: dict
 ):
-    params_via_parameter_groups = {
-        name: group
-        for name, group in module.named_parameter_groups(groupby=None, **kwargs)
-    }
+    params_via_parameter_groups = []
+    for group in module.parameter_groups(**kwargs):
+        params_via_parameter_groups += group["params"]
 
     assert len(list(module.parameters())) == len(params_via_parameter_groups)
-
-
-@pytest.mark.parametrize(
-    "module,num_parameter_groups",
-    [
-        (bnn.Linear(5, 2, bias=True), 1),
-        (bnn.Linear(5, 2, bias=False), 1),
-        (bnn.Linear(6, 3, cov=bnn.params.LowRankCovariance(2), bias=True), 2),
-        (bnn.Conv2d(3, 2, 2, cov=bnn.params.FactorizedCovariance(), bias=True), 2),
-        (
-            models.MLP(
-                in_size=5,
-                hidden_sizes=[8, 8, 8],
-                out_size=1,
-                cov=[
-                    bnn.params.FactorizedCovariance(),
-                    None,
-                    None,
-                    bnn.params.FactorizedCovariance(),
-                ],
-                bias=True,
-            ),
-            6,
-        ),
-        (
-            bnn.Sequential(
-                NNModuleWithSubmodules(),
-                NNModuleWithSubmodules(),
-                parametrization=bnn.params.SP(),
-            ),
-            4,
-        ),
-    ],
-    ids=lambda x: x if isinstance(x, int) else x.__class__.__name__,
-)
-def test_named_parameter_groups_groupby_module(
-    module: bnn.BNNMixin, num_parameter_groups: int
-):
-    assert (
-        len(list(module.named_parameter_groups(groupby="module")))
-        == num_parameter_groups
-    )
 
 
 def test_direct_parameters_must_raise_error():
@@ -173,4 +137,4 @@ def test_direct_parameters_must_raise_error():
         module.reset_parameters()
 
     with pytest.raises(NotImplementedError):
-        list(module.named_parameter_groups())
+        list(module.named_parameter_groups(optimizer="SGD", lr=0.1))
