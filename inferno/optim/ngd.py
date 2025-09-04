@@ -17,7 +17,26 @@ def precondition(
         needs_squeezing = True
         grad = grad.unsqueeze(-1)
 
-    # Uniformly damped spectrum
+    param_dim = grad.shape[-2]
+    cov_rank = precond_factor.shape[-1]
+
+    # For a low-rank preconditioner, only precondition in the subspace corresponding to
+    # non-zero eigenvalues of the preconditioner factor.
+    if cov_rank < param_dim:
+        U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
+        precond_factor = U * torch.concat(
+            [S, torch.ones((*S.shape[:-1], param_dim - cov_rank))], dim=-1
+        )
+
+        # Lower bounded spectrum
+        # U, L, V = torch.linalg.svd(precond_factor)
+        # L[L < 1.0] = self.precond_dampening
+
+        # L, Q = torch.linalg.eigh(precond_factor @ precond_factor.mT)
+        # L[L < 1.0] = self.precond_dampening
+        # preconditioned_grad = Q @ torch.diag_embed(L) @ Q.mT @ grad
+
+    # Precondition gradient
     preconditioned_grad = precond_factor @ (precond_factor.mT @ grad) + dampening * grad
 
     # Normalization
@@ -25,16 +44,6 @@ def precondition(
         preconditioned_grad = preconditioned_grad / torch.linalg.vector_norm(
             preconditioned_grad, ord=2
         )
-
-    # TODO: Handle low rank covariances
-
-    # Lower bounded spectrum
-    # U, L, V = torch.linalg.svd(precond_factor)
-    # L[L < 1.0] = self.precond_dampening
-
-    # L, Q = torch.linalg.eigh(precond_factor @ precond_factor.mT)
-    # L[L < 1.0] = self.precond_dampening
-    # preconditioned_grad = Q @ torch.diag_embed(L) @ Q.mT @ grad
 
     if not needs_squeezing:
         return preconditioned_grad
@@ -123,12 +132,13 @@ class NGD(torch.optim.SGD):
 
                 # Precondition mean parameters with a covariance, and covariance parameters
                 if stacked_cov_params is not None:
-                    stacked_grad = precondition(
-                        stacked_grad,
-                        precond_factor=stacked_cov_params,
-                        dampening=self.precond_dampening,
-                        normalize=self.normalize,
-                    )
+                    with torch.no_grad():
+                        stacked_grad = precondition(
+                            stacked_grad,
+                            precond_factor=stacked_cov_params,
+                            dampening=self.precond_dampening,
+                            normalize=self.normalize,
+                        )
 
                 # Update parameters
                 start_idx = 0
