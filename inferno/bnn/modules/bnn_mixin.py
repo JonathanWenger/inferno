@@ -80,10 +80,6 @@ class BNNMixin(abc.ABC):
         :param lr: The global learning rate. Needs to be specified for SGD and Adam.
         :param prefix: Prefix to add to the names of the parameter groups.
         """
-        # TODO: replace groupby with an optimizer argument and return groups as needed for NGD
-        # i.e. some parameters are in a list in params and have a
-        # reference ("cov_params" : prefix + "params.cov") to the corresponding covariance parameters name
-        # and some without (e.g. temperature)? or just a "hascov" argument or sth.
         prefix = prefix + "." if prefix != "" else prefix
 
         # Check whether this module has any parameters itself (not just its children).
