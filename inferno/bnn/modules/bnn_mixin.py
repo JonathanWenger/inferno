@@ -59,14 +59,12 @@ class BNNMixin(abc.ABC):
             if isinstance(child, BNNMixin):
                 # Set the parametrization of all children to the parametrization of the parent module.
                 child.parametrization = self.parametrization
-
-                # Reset the parameters of the child module.
+                # Initialize the parameters of the child module.
                 child.reset_parameters()
             else:
-                if hasattr(child, "reset_parameters"):
-                    reset_parameters_of_torch_module(
-                        child, parametrization=self.parametrization
-                    )
+                reset_parameters_of_torch_module(
+                    child, parametrization=self.parametrization
+                )
 
     def named_parameter_groups(
         self,
@@ -178,43 +176,38 @@ def reset_parameters_of_torch_module(
     /,
     parametrization: Parametrization,
 ) -> None:
-    """Reset the parameters of a torch.nn.Module according to a given parametrization.
+    """Reset the parameters of a torch.nn.Module and its children according to a given parametrization.
 
     :param module: The torch.nn.Module to reset the parameters of.
     :param parametrization: The parametrization to use.
     """
-    module_parameter_names = [param_name for param_name, _ in module.named_parameters()]
+    module_parameter_names = [
+        param_name for param_name, _ in module.named_parameters(recurse=False)
+    ]
     if len(module_parameter_names) == 0:
-        return
+        pass
     elif isinstance(
         module,
         (nn.LayerNorm, nn.GroupNorm, nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d),
     ):
         # No need to change parameter initialization of layer norm according to Appendix B.1 of http://arxiv.org/abs/2203.03466
         module.reset_parameters()
-    elif "weight" in module_parameter_names:
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
-
-        nn.init.normal_(
-            module.weight,
-            mean=0,
-            std=parametrization.weight_init_scale(
-                fan_in=fan_in, fan_out=fan_out, layer_type="hidden"
-            ),
-        )
-        if hasattr(module, "bias") and module.bias is not None:
-            nn.init.normal_(
-                module.bias,
-                mean=0,
-                std=parametrization.bias_init_scale(
-                    fan_in=fan_in, fan_out=fan_out, layer_type="hidden"
-                ),
-            )
     else:
         raise NotImplementedError(
             f"Cannot reset parameters of module: {module.__class__.__name__} "
             f"according to the {parametrization.__class__.__name__} parametrization."
         )
+
+    # Reset parameters of child modules
+    for child in module.children():
+
+        if isinstance(child, BNNMixin):
+            # Set the parametrization of all children to the parametrization of the parent module.
+            child.parametrization = parametrization
+            # Initialize the parameters of the child module.
+            child.reset_parameters()
+        else:
+            reset_parameters_of_torch_module(child, parametrization=parametrization)
 
 
 def named_parameter_groups_of_torch_module(
