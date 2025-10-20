@@ -89,7 +89,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
                 cov=(
                     copy.deepcopy(cov)
                     if isinstance(cov, params.DiagonalCovariance)
-                    else copy.deepcopy(cov)
+                    else None  # TODO: temporary only for last layer experiments
                 ),
                 parametrization=self.parametrization,
                 layer_type="input",
@@ -105,7 +105,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
                 cov=(
                     copy.deepcopy(cov)
                     if isinstance(cov, params.DiagonalCovariance)
-                    else copy.deepcopy(cov)
+                    else None  # TODO: temporary only for last layer experiments
                 ),
                 parametrization=self.parametrization,
                 layer_type="input",

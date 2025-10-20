@@ -39,7 +39,7 @@ class LeNet5(bnn.Sequential):
                 cov=(
                     copy.deepcopy(cov)
                     if isinstance(cov, params.DiagonalCovariance)
-                    else copy.deepcopy(cov)
+                    else None  # TODO: only temporary for last layer models
                 ),
                 layer_type="input",
             ),
