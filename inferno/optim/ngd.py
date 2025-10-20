@@ -3,9 +3,12 @@ from __future__ import annotations
 import itertools
 from typing import TYPE_CHECKING, Union
 
-from jaxtyping import Float
 import torch
 from torch.optim.optimizer import ParamsT
+
+if TYPE_CHECKING:
+    from jaxtyping import Float
+    from torch import Tensor
 
 
 def precondition(
