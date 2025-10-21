@@ -65,6 +65,7 @@ def get_train_test_datasets(
             nn.Flatten(-2, -1),
             parametrization=bnn.params.SP(),
         )
+        # TODO: add models with convolutions / attention layers
     ],
 )
 @pytest.mark.parametrize(
@@ -196,6 +197,7 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
             ),
             0.05,
         ),
+        # TODO: add models with convolutions / attention layers
     ],
 )
 def test_optimizes_models_with_different_covariances(model: bnn.BNNMixin, lr: float):

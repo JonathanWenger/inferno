@@ -116,18 +116,18 @@ class NGD(torch.optim.SGD):
                         and param_group["cov_params"] is not None
                     ):
                         cov_params = [
-                            p if p.ndim > 2 else p.unsqueeze(1)
+                            p if p.ndim > 2 else p.unsqueeze(-2)
                             for p in param_group["cov_params"]
                         ]
-                        stacked_cov_params = torch.concat(cov_params, dim=1)
+                        stacked_cov_params = torch.concat(cov_params, dim=-2)
                 else:
                     # Covariance parameters
                     param_ndim_thresh = 2
                     cov_params = [
-                        p if p.ndim > 2 else p.unsqueeze(1)
+                        p if p.ndim > 2 else p.unsqueeze(-2)
                         for p in param_group["params"]
                     ]
-                    stacked_cov_params = torch.concat(cov_params, dim=1)
+                    stacked_cov_params = torch.concat(cov_params, dim=-2)
 
                 grads = [
                     p.grad if p.grad.ndim > param_ndim_thresh else p.grad.unsqueeze(1)
