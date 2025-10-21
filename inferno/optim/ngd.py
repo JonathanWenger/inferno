@@ -3,8 +3,8 @@ from __future__ import annotations
 import itertools
 from typing import TYPE_CHECKING, Union
 
-import torch
 import numpy as np
+import torch
 from torch.optim.optimizer import ParamsT
 
 if TYPE_CHECKING:
@@ -31,7 +31,15 @@ def precondition(
     if cov_rank < param_dim:
         U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
         precond_factor = U * torch.concat(
-            [S, torch.ones((*S.shape[:-1], param_dim - cov_rank))], dim=-1
+            [
+                S,
+                torch.ones(
+                    (*S.shape[:-1], param_dim - cov_rank),
+                    dtype=grad.dtype,
+                    device=grad.device,
+                ),
+            ],
+            dim=-1,
         )
 
         # Lower bounded spectrum
