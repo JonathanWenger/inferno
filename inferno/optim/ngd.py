@@ -4,6 +4,7 @@ import itertools
 from typing import TYPE_CHECKING, Union
 
 import torch
+import numpy as np
 from torch.optim.optimizer import ParamsT
 
 if TYPE_CHECKING:
@@ -110,30 +111,31 @@ class NGD(torch.optim.SGD):
                 stacked_cov_params = None
                 if not any([".cov" in name for name in param_group["param_names"]]):
                     # Mean parameters
-                    param_ndim_thresh = 1
+                    is_mean_param = True
                     if (
                         "cov_params" in param_group
                         and param_group["cov_params"] is not None
                     ):
                         cov_params = [
-                            p if p.ndim > 2 else p.unsqueeze(-2)
+                            p.reshape(-1, p.shape[-1])
                             for p in param_group["cov_params"]
                         ]
                         stacked_cov_params = torch.concat(cov_params, dim=-2)
+
+                    grads = [p.grad.reshape(-1, 1) for p in param_group["params"]]
                 else:
                     # Covariance parameters
-                    param_ndim_thresh = 2
+                    is_mean_param = False
                     cov_params = [
-                        p if p.ndim > 2 else p.unsqueeze(-2)
-                        for p in param_group["params"]
+                        p.reshape(-1, p.shape[-1]) for p in param_group["params"]
                     ]
                     stacked_cov_params = torch.concat(cov_params, dim=-2)
 
-                grads = [
-                    p.grad if p.grad.ndim > param_ndim_thresh else p.grad.unsqueeze(1)
-                    for p in param_group["params"]
-                ]
-                stacked_grad = torch.concat(grads, dim=1)
+                    grads = [
+                        p.grad.reshape(-1, p.shape[-1]) for p in param_group["params"]
+                    ]
+
+                stacked_grad = torch.concat(grads, dim=0)
 
                 # Precondition mean parameters with a covariance, and covariance parameters
                 if stacked_cov_params is not None:
@@ -153,12 +155,12 @@ class NGD(torch.optim.SGD):
                 for i, param in enumerate(param_group["params"]):
 
                     # Split (preconditioned) stacked gradient into individual parameter gradients
-                    if param.ndim == param_ndim_thresh:
-                        end_idx = start_idx + 1
+                    if is_mean_param:
+                        end_idx = start_idx + int(np.prod(param.shape))
                     else:
-                        end_idx = start_idx + param.shape[-param_ndim_thresh]
+                        end_idx = start_idx + int(np.prod(param.shape[0:-1]))
 
-                    grad = stacked_grad[:, start_idx:end_idx, ...].reshape(param.shape)
+                    grad = stacked_grad[start_idx:end_idx, ...].reshape(param.shape)
                     start_idx = end_idx
 
                     # Weight decay
