@@ -11,6 +11,7 @@ import pytest
 
 
 def get_train_test_datasets(
+    input_shape: tuple[int, ...],
     num_train_data: int,
     num_test_data: int,
     noise_scale: float,
@@ -21,18 +22,23 @@ def get_train_test_datasets(
 
         # Latent function
         def f(x):
-            return torch.sigmoid(10 * x) - 0.5
+            return (
+                torch.sigmoid(10 * x.reshape(-1, np.prod(x.shape[1:])).mean(dim=-1))
+                - 0.5
+            )
 
         # Noisy observations
         def y(x, noise_scale=noise_scale):
             return f(x).squeeze() + noise_scale * torch.randn(x.shape[0])
 
         # Training data
-        X_train_raw = torch.rand((num_train_data, 1), generator=generator) - 0.5
+        X_train_raw = (
+            torch.rand((num_train_data, *input_shape), generator=generator) - 0.5
+        )
         X_train_mean = X_train_raw.mean(dim=0)
         X_train_std = X_train_raw.std(dim=0)
         train_inputs_normalization_transform = transforms.Lambda(
-            lambda x: (x - X_train_mean) / X_train_std
+            lambda x: (x - X_train_mean.unsqueeze(0)) / X_train_std.unsqueeze(0)
         )
 
         X_train = train_inputs_normalization_transform(X_train_raw)
@@ -46,7 +52,9 @@ def get_train_test_datasets(
         y_train = train_targets_normalization_transform(y_train)
 
         # Test data
-        X_test_raw = 2 * (torch.rand((num_test_data, 1), generator=generator) - 0.5)
+        X_test_raw = 2 * (
+            torch.rand((num_test_data, *input_shape), generator=generator) - 0.5
+        )
         X_test = train_inputs_normalization_transform(X_test_raw)
         y_test = y(X_test_raw)
         y_test = train_targets_normalization_transform(y_test)
@@ -58,14 +66,25 @@ def get_train_test_datasets(
 
 
 @pytest.mark.parametrize(
-    "model",
+    "model,input_shape",
     [
-        bnn.Sequential(
-            models.MLP(in_size=1, hidden_sizes=[8, 8], out_size=1),
-            nn.Flatten(-2, -1),
-            parametrization=bnn.params.SP(),
-        )
-        # TODO: add models with convolutions / attention layers
+        (
+            bnn.Sequential(
+                models.MLP(in_size=1, hidden_sizes=[8, 8], out_size=1),
+                nn.Flatten(-2, -1),
+                parametrization=bnn.params.SP(),
+            ),
+            (1,),
+        ),
+        (
+            bnn.Sequential(
+                models.LeNet5(out_size=1),
+                nn.Flatten(-2, -1),
+                parametrization=bnn.params.SP(),
+            ),
+            (1, 28, 28),
+        ),
+        # TODO: add models with attention layers
     ],
 )
 @pytest.mark.parametrize(
@@ -78,7 +97,7 @@ def get_train_test_datasets(
     ],
 )
 def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrization(
-    model: bnn.BNNMixin, optimizer_kwargs: dict
+    model: bnn.BNNMixin, input_shape: tuple[int, ...], optimizer_kwargs: dict
 ):
 
     train_losses = {
@@ -97,24 +116,19 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
         # Dataset
         num_train_data = 100
         num_test_data = 100
-        train_dataset, test_dataset = get_train_test_datasets(
+        train_dataset, _ = get_train_test_datasets(
+            input_shape=input_shape,
             num_train_data=num_train_data,
             num_test_data=num_test_data,
             noise_scale=0.01,
             generator=rng_dataset,
         )
 
-        # Dataloaders
+        # Dataloader(s)
         batch_size = 16
         train_dataloader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=batch_size,
-            shuffle=True,
-            generator=rng_dataset,
-        )
-        test_dataloader = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=num_test_data,
             shuffle=True,
             generator=rng_dataset,
         )
@@ -138,7 +152,7 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
         # Training loop
         num_epochs = 5
         model.train()
-        for epoch in range(num_epochs):
+        for _ in range(num_epochs):
             for X_batch, y_batch in iter(train_dataloader):
                 optimizer.zero_grad()
 
@@ -161,7 +175,7 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
 
 
 @pytest.mark.parametrize(
-    "model,lr",
+    "model,input_shape,lr",
     [
         (
             bnn.Sequential(
@@ -178,6 +192,7 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
                 nn.Flatten(-2, -1),
                 parametrization=bnn.params.SP(),
             ),
+            (1,),
             0.05,
         ),
         (
@@ -195,12 +210,33 @@ def test_reproduces_sgd_for_models_without_cov_params_in_standard_parametrizatio
                 nn.Flatten(-2, -1),
                 parametrization=bnn.params.SP(),
             ),
+            (1,),
             0.05,
         ),
-        # TODO: add models with convolutions / attention layers
+        (
+            bnn.Sequential(
+                models.LeNet5(out_size=1, cov=bnn.params.FactorizedCovariance()),
+                nn.Flatten(-2, -1),
+                parametrization=bnn.params.SP(),
+            ),
+            (1, 28, 28),
+            1e-3,
+        ),
+        (
+            bnn.Sequential(
+                models.LeNet5(out_size=1, cov=bnn.params.LowRankCovariance(10)),
+                nn.Flatten(-2, -1),
+                parametrization=bnn.params.SP(),
+            ),
+            (1, 28, 28),
+            1e-3,
+        ),
+        # TODO: add model with attention layers
     ],
 )
-def test_optimizes_models_with_different_covariances(model: bnn.BNNMixin, lr: float):
+def test_optimizes_models_with_different_covariances(
+    model: bnn.BNNMixin, input_shape: tuple[int, ...], lr: float
+):
 
     # RNG
     torch.manual_seed(42)
@@ -212,7 +248,8 @@ def test_optimizes_models_with_different_covariances(model: bnn.BNNMixin, lr: fl
     # Dataset
     num_train_data = 100
     num_test_data = 100
-    train_dataset, test_dataset = get_train_test_datasets(
+    train_dataset, _ = get_train_test_datasets(
+        input_shape=input_shape,
         num_train_data=num_train_data,
         num_test_data=num_test_data,
         noise_scale=0.01,
@@ -227,12 +264,6 @@ def test_optimizes_models_with_different_covariances(model: bnn.BNNMixin, lr: fl
         shuffle=True,
         generator=rng_dataset,
     )
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=num_test_data,
-        shuffle=True,
-        generator=rng_dataset,
-    )
 
     # Loss function
     loss_fn = nn.MSELoss()
@@ -244,7 +275,7 @@ def test_optimizes_models_with_different_covariances(model: bnn.BNNMixin, lr: fl
     num_epochs = 10
     train_losses = []
     model.train()
-    for epoch in range(num_epochs):
+    for _ in range(num_epochs):
         for X_batch, y_batch in iter(train_dataloader):
             optimizer.zero_grad()
 
