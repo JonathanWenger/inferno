@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 
 def precondition(
-    grad: Float[torch.Tensor, "mean_param ..."],
-    precond_factor: Float[torch.Tensor, "mean_param ... rank"],
+    grad: Float[torch.Tensor, "param ..."],
+    precond_factor: Float[torch.Tensor, "param ... rank"],
     dampening: float = 0.0,
     normalize: bool = True,
 ):
