@@ -30,6 +30,7 @@ def precondition(
     # non-zero eigenvalues of the preconditioner factor.
     if cov_rank < param_dim:
         U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
+
         precond_factor = U * torch.concat(
             [
                 S,
