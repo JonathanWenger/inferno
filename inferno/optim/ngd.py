@@ -141,7 +141,9 @@ class NGD(torch.optim.SGD):
                     stacked_cov_params = torch.concat(cov_params, dim=-2)
 
                     grads = [
-                        p.grad.reshape(-1, p.shape[-1]) for p in param_group["params"]
+                        2  # NOTE: NGD requires factor 2 for covariance parameter
+                        * p.grad.reshape(-1, p.shape[-1])
+                        for p in param_group["params"]
                     ]
 
                 stacked_grad = torch.concat(grads, dim=0)
