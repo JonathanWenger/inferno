@@ -141,9 +141,7 @@ class NGD(torch.optim.SGD):
                     stacked_cov_params = torch.concat(cov_params, dim=-2)
 
                     grads = [
-                        2  # NOTE: NGD requires factor 2 for covariance parameter
-                        * p.grad.reshape(-1, p.shape[-1])
-                        for p in param_group["params"]
+                        p.grad.reshape(-1, p.shape[-1]) for p in param_group["params"]
                     ]
 
                 stacked_grad = torch.concat(grads, dim=0)
@@ -172,6 +170,10 @@ class NGD(torch.optim.SGD):
                         end_idx = start_idx + int(np.prod(param.shape[0:-1]))
 
                     grad = stacked_grad[start_idx:end_idx, ...].reshape(param.shape)
+                    if not is_mean_param:
+                        # NOTE: NGD requires factor 2 for covariance parameters
+                        grad = 2 * grad
+
                     start_idx = end_idx
 
                     # Weight decay
