@@ -1,5 +1,6 @@
 """Loss functions."""
 
+from .generalized_vi_loss import GeneralizedVILoss
 from .variational_free_energy import VariationalFreeEnergy
 from .wrapped_torch_loss_fns import (
     BCELoss,
@@ -18,6 +19,7 @@ __all__ = [
     "BCELoss",
     "BCEWithLogitsLoss",
     "CrossEntropyLoss",
+    "GeneralizedVILoss",
     "L1Loss",
     "MSELoss",
     "NLLLoss",
