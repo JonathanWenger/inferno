@@ -1,7 +1,15 @@
 """Wrappers for torch loss functions to ensure compatibility with models that sample a set of predictions."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor, nn
+
+if TYPE_CHECKING:
+    from jaxtyping import Float, Integer
+    from torch import Tensor
 
 
 def inputs_and_expanded_targets(inputs, targets):
@@ -53,7 +61,11 @@ class MSELoss(nn.MSELoss):
     def __init__(self, reduction="mean"):
         super().__init__(reduction=reduction)
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch"],
+        target: Float[Tensor, "batch"],
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))
 
 
@@ -72,7 +84,11 @@ class L1Loss(nn.L1Loss):
     def __init__(self, reduction="mean"):
         super().__init__(reduction=reduction)
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch"],
+        target: Float[Tensor, "batch"],
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))
 
 
@@ -112,7 +128,19 @@ class CrossEntropyLoss(nn.CrossEntropyLoss):
             label_smoothing=label_smoothing,
         )
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: (
+            Float[Tensor, "*sample batch logit"]
+            | Float[Tensor, "*sample batch logit ..."]
+        ),
+        target: (
+            Integer[Tensor, "batch"]
+            | Integer[Tensor, "batch ..."]
+            | Float[Tensor, "batch class_probability"]
+            | Float[Tensor, "batch class_probability ..."]
+        ),
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))
 
 
@@ -146,7 +174,14 @@ class NLLLoss(nn.NLLLoss):
             reduction=reduction,
         )
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: (
+            Float[Tensor, "*sample batch log_probability"]
+            | Float[Tensor, "*sample batch log_probability ..."]
+        ),
+        target: Integer[Tensor, "batch"] | Integer[Tensor, "batch ..."],
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))
 
 
@@ -174,7 +209,11 @@ class BCELoss(nn.BCELoss):
             reduction=reduction,
         )
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch"] | Float[Tensor, "*sample batch ..."],
+        target: Float[Tensor, "batch"] | Float[Tensor, "batch ..."],
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))
 
 
@@ -211,5 +250,9 @@ class BCEWithLogitsLoss(nn.BCEWithLogitsLoss):
             pos_weight=pos_weight,
         )
 
-    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch"] | Float[Tensor, "*sample batch ..."],
+        target: Float[Tensor, "batch"] | Float[Tensor, "batch ..."],
+    ) -> Tensor:
         return super().forward(*inputs_and_expanded_targets(input, target))

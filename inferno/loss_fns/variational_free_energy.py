@@ -86,8 +86,8 @@ class VariationalFreeEnergy(nn.Module):
 
     def forward(
         self,
-        input: Float[Tensor, "*sample batch in_feature"],
-        target: Float[Tensor, "batch out_feature"],
+        input: Float[Tensor, "*sample batch"],
+        target: Float[Tensor, "batch"],
     ) -> Float[Tensor, ""]:
         # Expected negative log-likelihood (NLL)
         expected_nll = self.nll(
