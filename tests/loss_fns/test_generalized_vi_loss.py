@@ -122,8 +122,7 @@ def test_divergence_is_differentiable(divergence, model):
 
     model.zero_grad()
 
-    loss_fn = loss_fns.WassersteinDistance()
-    loss = loss_fn(model, model1)
+    loss = divergence(model, model1)
 
     loss.backward()
 
