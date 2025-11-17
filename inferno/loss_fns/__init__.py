@@ -1,6 +1,6 @@
 """Loss functions."""
 
-from .generalized_vi_loss import GeneralizedVILoss
+from .generalized_vi_loss import GeneralizedVILoss, WassersteinDistance
 from .variational_free_energy import VariationalFreeEnergy
 from .wrapped_torch_loss_fns import (
     BCELoss,
@@ -25,5 +25,6 @@ __all__ = [
     "NLLLoss",
     "NegativeELBO",
     "VariationalFreeEnergy",
+    "WassersteinDistance",
     "inputs_and_expanded_targets",
 ]
