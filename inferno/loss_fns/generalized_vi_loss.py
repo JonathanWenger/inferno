@@ -70,7 +70,16 @@ class WassersteinDistance(nn.Module):
                 cov_input_sqrt = param_input.reshape(-1, param_input.shape[-1])
                 U, Ssqrt, _ = torch.linalg.svd(cov_input_sqrt, full_matrices=True)
                 if len(Ssqrt) < U.shape[-1]:
-                    Ssqrt = torch.concat((Ssqrt, torch.zeros(U.shape[-1] - len(Ssqrt))))
+                    Ssqrt = torch.concat(
+                        (
+                            Ssqrt,
+                            torch.zeros(
+                                U.shape[-1] - len(Ssqrt),
+                                dtype=Ssqrt.dtype,
+                                device=Ssqrt.device,
+                            ),
+                        )
+                    )
                 USsqrt = U * Ssqrt
 
                 cov_target_sqrt = param_target.reshape(-1, param_target.shape[-1])
