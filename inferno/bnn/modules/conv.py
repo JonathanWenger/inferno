@@ -35,8 +35,8 @@ class _ConvNd(BNNMixin, nn.Module):
         layer_type: Literal["input", "hidden", "output"] = "hidden",
         cov: params.FactorizedCovariance | None = None,
         parametrization: params.Parametrization = params.MaximalUpdate(),
-        device: torch.device = None,
-        dtype: torch.dtype = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
 
         factory_kwargs = {"device": device, "dtype": dtype}
@@ -315,11 +315,15 @@ class _ConvNd(BNNMixin, nn.Module):
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
-        sample_shape: torch.Size = torch.Size([]),
+        sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch out_channel *out_feature"]:
+
+        if sample_shape is None:
+            # Forward pass with mean parameters
+            return self._conv_forward(input, self.weight, self.bias)
 
         if not input_contains_samples:
             # Repeat input for each desired sample
@@ -353,7 +357,7 @@ class _ConvNd(BNNMixin, nn.Module):
                 (parameter_samples["bias"] if self.bias is not None else None),
             )
         else:
-            # In case we have multiple sample dimensions, flatten, vmap and unflatten into sample_shape
+            # In case we have one or more sample dimensions, flatten, vmap and unflatten into sample_shape
             flattened_conv_result = torch.vmap(
                 self._conv_forward,
                 in_dims=(0, 0, 0 if self.bias is not None else None),
@@ -422,8 +426,8 @@ class Conv1d(_ConvNd):
         layer_type: Literal["input", "hidden", "output"] = "hidden",
         cov: params.FactorizedCovariance | None = None,
         parametrization: params.Parametrization = params.MaximalUpdate(),
-        device: torch.device = None,
-        dtype: torch.dtype = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
 
@@ -517,8 +521,8 @@ class Conv2d(_ConvNd):
         layer_type: Literal["input", "hidden", "output"] = "hidden",
         cov: params.FactorizedCovariance | None = None,
         parametrization: params.Parametrization = params.MaximalUpdate(),
-        device: torch.device = None,
-        dtype: torch.dtype = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
 
@@ -607,8 +611,8 @@ class Conv3d(_ConvNd):
         layer_type: Literal["input", "hidden", "output"] = "hidden",
         cov: params.FactorizedCovariance | None = None,
         parametrization: params.Parametrization = params.MaximalUpdate(),
-        device: torch.device = None,
-        dtype: torch.dtype = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         kernel_size_ = _triple(kernel_size)

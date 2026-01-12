@@ -179,11 +179,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             512 * block.expansion,
             out_size,
             parametrization=parametrization,
-            cov=(
-                copy.deepcopy(cov)
-                if isinstance(cov, params.DiagonalCovariance)
-                else copy.deepcopy(cov)
-            ),
+            cov=copy.deepcopy(cov),
             layer_type="output",
         )
 
@@ -330,12 +326,19 @@ class ResNet(bnn.BNNMixin, nn.Module):
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
-        sample_shape: torch.Size = torch.Size([]),
+        sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
-        # See note [TorchScript super()]
+        """Implementation of forward which is compatible with TorchScript.
+
+        It serves as an internal, TorchScript-friendly version of the standard forward method,
+        allowing for model tracing and compilation for deployment while preserving the flexibility
+        of the standard forward method in eager execution.
+        """
+
+        num_sample_dims = 0 if sample_shape is None else len(sample_shape)
 
         out = self.conv1(
             input,
@@ -344,11 +347,11 @@ class ResNet(bnn.BNNMixin, nn.Module):
             input_contains_samples=input_contains_samples,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn1, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn1, num_batch_dims=num_sample_dims + 1)(out)
         out = self.relu(out)
         if self.optional_pool is not None:
             out = bnn.batched_forward(
-                self.optional_pool, num_batch_dims=len(sample_shape) + 1
+                self.optional_pool, num_batch_dims=num_sample_dims + 1
             )(out)
 
         out = self.layer1(
@@ -380,9 +383,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             parameter_samples=parameter_samples,
         )
 
-        out = bnn.batched_forward(self.avgpool, num_batch_dims=len(sample_shape) + 1)(
-            out
-        )
+        out = bnn.batched_forward(self.avgpool, num_batch_dims=num_sample_dims + 1)(out)
         out = torch.flatten(out, -3)
 
         final_layer_forward_kwargs = {}
@@ -406,7 +407,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
-        sample_shape: torch.Size = torch.Size([]),
+        sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
@@ -492,11 +493,13 @@ class BasicBlock(bnn.BNNMixin, nn.Module):
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
-        sample_shape: torch.Size = torch.Size([]),
+        sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        num_sample_dims = 0 if sample_shape is None else len(sample_shape)
+
         identity = input
 
         out = self.conv1(
@@ -506,7 +509,7 @@ class BasicBlock(bnn.BNNMixin, nn.Module):
             input_contains_samples=input_contains_samples,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn1, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn1, num_batch_dims=num_sample_dims + 1)(out)
         out = self.relu(out)
 
         out = self.conv2(
@@ -516,7 +519,7 @@ class BasicBlock(bnn.BNNMixin, nn.Module):
             input_contains_samples=True,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn2, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn2, num_batch_dims=num_sample_dims + 1)(out)
 
         if self.downsample is not None:
             identity = self.downsample(
@@ -620,11 +623,13 @@ class Bottleneck(bnn.BNNMixin, nn.Module):
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
-        sample_shape: torch.Size = torch.Size([]),
+        sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        num_sample_dims = 0 if sample_shape is None else len(sample_shape)
+
         identity = input
 
         out = self.conv1(
@@ -634,7 +639,7 @@ class Bottleneck(bnn.BNNMixin, nn.Module):
             input_contains_samples=input_contains_samples,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn1, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn1, num_batch_dims=num_sample_dims + 1)(out)
         out = self.relu(out)
 
         out = self.conv2(
@@ -644,7 +649,7 @@ class Bottleneck(bnn.BNNMixin, nn.Module):
             input_contains_samples=True,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn2, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn2, num_batch_dims=num_sample_dims + 1)(out)
         out = self.relu(out)
 
         out = self.conv3(
@@ -654,7 +659,7 @@ class Bottleneck(bnn.BNNMixin, nn.Module):
             input_contains_samples=True,
             parameter_samples=parameter_samples,
         )
-        out = bnn.batched_forward(self.bn3, num_batch_dims=len(sample_shape) + 1)(out)
+        out = bnn.batched_forward(self.bn3, num_batch_dims=num_sample_dims + 1)(out)
 
         if self.downsample is not None:
             identity = self.downsample(
@@ -674,7 +679,7 @@ class Bottleneck(bnn.BNNMixin, nn.Module):
 class ResNet18(ResNet):
     """ResNet-18
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -709,7 +714,7 @@ class ResNet18(ResNet):
 class ResNet34(ResNet):
     """ResNet-34
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -744,7 +749,7 @@ class ResNet34(ResNet):
 class ResNet50(ResNet):
     """ResNet-50
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -779,7 +784,7 @@ class ResNet50(ResNet):
 class ResNet101(ResNet):
     """ResNet-101
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -814,7 +819,7 @@ class ResNet101(ResNet):
 class ResNeXt50_32X4D(ResNet):
     """ResNext-50 (32x4d)
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -854,7 +859,7 @@ class ResNeXt50_32X4D(ResNet):
 class ResNeXt101_32X8D(ResNet):
     """ResNext-101 (32x8d)
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -894,7 +899,7 @@ class ResNeXt101_32X8D(ResNet):
 class ResNeXt101_64X4D(ResNet):
     """ResNext-101 (32x4d)
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -937,7 +942,7 @@ class WideResNet50(ResNet):
     Architecture described in [Wide Residual Networks](https://arxiv.org/abs/1605.06431). The model is the same
     as a ResNet except for the bottleneck number of channels which is twice larger in every block.
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(
@@ -979,7 +984,7 @@ class WideResNet101(ResNet):
     Architecture described in [Wide Residual Networks](https://arxiv.org/abs/1605.06431). The model is the same
     as a ResNet except for the bottleneck number of channels which is twice larger in every block.
 
-    :param **kwargs: Additional keyword arguments passed on to :class:`~inferno.bnn.models.ResNet`.
+    :param **kwargs: Additional keyword arguments passed on to [``ResNet``][inferno.models.ResNet].
     """
 
     def __init__(

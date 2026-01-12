@@ -2,4 +2,10 @@
 
 from . import bnn, datasets, loss_fns, models, optim
 
-__all__ = ["bnn", "datasets", "loss_fns", "models", "optim"]
+__all__ = [
+    "bnn",
+    "datasets",
+    "loss_fns",
+    "models",
+    "optim",
+]
