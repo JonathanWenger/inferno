@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 import copy
-from typing import Callable
+from typing import Callable, Union
 
 from torch import nn
 
@@ -91,3 +92,9 @@ class LeNet5(bnn.Sequential):
         ]
 
         super().__init__(*layers, parametrization=parametrization)
+
+    def __getitem__(self, idx: Union[slice, int]) -> bnn.Sequential:
+        if isinstance(idx, slice):
+            return bnn.Sequential(OrderedDict(list(self._modules.items())[idx]))
+        else:
+            return super().__getitem__(idx)

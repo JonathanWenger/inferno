@@ -322,7 +322,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
 
         return bnn.Sequential(*layers, parametrization=parametrization)
 
-    def _forward_impl(
+    def representation(
         self,
         input: Float[Tensor, "*sample batch *in_feature"],
         /,
@@ -331,12 +331,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
-        """Implementation of forward which is compatible with TorchScript.
-
-        It serves as an internal, TorchScript-friendly version of the standard forward method,
-        allowing for model tracing and compilation for deployment while preserving the flexibility
-        of the standard forward method in eager execution.
-        """
+        """Representation of the model."""
 
         num_sample_dims = 0 if sample_shape is None else len(sample_shape)
 
@@ -386,6 +381,25 @@ class ResNet(bnn.BNNMixin, nn.Module):
         out = bnn.batched_forward(self.avgpool, num_batch_dims=num_sample_dims + 1)(out)
         out = torch.flatten(out, -3)
 
+        return out
+
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch *in_feature"],
+        /,
+        sample_shape: torch.Size | None = torch.Size([]),
+        generator: torch.Generator | None = None,
+        input_contains_samples: bool = False,
+        parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
+    ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        out = self.representation(
+            input,
+            sample_shape=sample_shape,
+            generator=generator,
+            input_contains_samples=input_contains_samples,
+            parameter_samples=parameter_samples,
+        )
+
         final_layer_forward_kwargs = {}
         if isinstance(self.fc, bnn.Linear):
             # This supports swapping out the final layer for a nn.Linear layer
@@ -400,25 +414,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             out,
             **final_layer_forward_kwargs,
         )
-
         return out
-
-    def forward(
-        self,
-        input: Float[Tensor, "*sample batch *in_feature"],
-        /,
-        sample_shape: torch.Size | None = torch.Size([]),
-        generator: torch.Generator | None = None,
-        input_contains_samples: bool = False,
-        parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
-    ) -> Float[Tensor, "*sample *batch *out_feature"]:
-        return self._forward_impl(
-            input,
-            sample_shape=sample_shape,
-            generator=generator,
-            input_contains_samples=input_contains_samples,
-            parameter_samples=parameter_samples,
-        )
 
 
 class BasicBlock(bnn.BNNMixin, nn.Module):
