@@ -1,5 +1,6 @@
 """Loss functions."""
 
+from .brier_score_loss import BrierScoreLoss
 from .focal_loss import FocalLoss
 from .variance_reduced_loss_fns import (
     BCEWithLogitsLossVR,
@@ -24,6 +25,7 @@ NegativeELBO = VariationalFreeEnergy
 __all__ = [
     "BCELoss",
     "BCEWithLogitsLoss",
+    "BrierScoreLoss",
     "CrossEntropyLoss",
     "FocalLoss",
     "MultipleBatchDimensionsLossMixin",

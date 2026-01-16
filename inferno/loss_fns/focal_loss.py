@@ -21,9 +21,7 @@ class FocalLoss(torch.nn.modules.loss._WeightedLoss):
     calibration ([Mukhoti et al. 2020](http://arxiv.org/abs/2002.09437)). The loss on a single datapoint is given by
 
     $$
-        \begin{equation*}
         \ell_n = -(1-\hat{p}_{y_n})^\gamma\log \hat{p}_{y_n}.
-        \end{equation*}
     $$
 
     For $\gamma=1$ the focal loss equals the cross entropy loss with an entropic regularizer on the predicted class probabilities.
