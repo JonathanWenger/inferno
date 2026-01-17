@@ -95,7 +95,11 @@ class MSELossVR(nn.modules.loss._Loss):
                     # which cov parameters correspond to the bias
                     input_representation = torch.cat(
                         (
-                            torch.ones((*input_representation.shape[0:-1], 1)),
+                            torch.ones(
+                                (*input_representation.shape[0:-1], 1),
+                                dtype=input_representation.dtype,
+                                device=input_representation.device,
+                            ),
                             input_representation,
                         ),
                         dim=-1,
@@ -104,7 +108,11 @@ class MSELossVR(nn.modules.loss._Loss):
                     input_representation = torch.cat(
                         (
                             input_representation,
-                            torch.ones((*input_representation.shape[0:-1], 1)),
+                            torch.ones(
+                                (*input_representation.shape[0:-1], 1),
+                                dtype=input_representation.dtype,
+                                device=input_representation.device,
+                            ),
                         ),
                         dim=-1,
                     )
