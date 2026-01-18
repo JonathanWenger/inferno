@@ -32,7 +32,12 @@ ___all__ = [
     "ResNeXt50_32X4D",
     "ResNeXt101_32X8D",
     "ResNeXt101_64X4D",
+    "VisionTransformer",
+    "ViT_B_16",
+    "ViT_B_32",
+    "ViT_H_14",
+    "ViT_L_16",
+    "ViT_L_32",
     "WideResNet50",
     "WideResNet101",
-    "as_torch_model",
 ]
