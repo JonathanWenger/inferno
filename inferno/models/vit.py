@@ -698,7 +698,13 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
             input_contains_samples=input_contains_samples,
             parameter_samples=parameter_samples,
         )
-        out = self.heads[-1](out)
+        out = self.heads[-1](
+            out,
+            sample_shape=sample_shape,
+            generator=generator,
+            input_contains_samples=True,
+            parameter_samples=parameter_samples,
+        )
         return out
 
 
