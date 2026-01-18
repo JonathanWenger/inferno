@@ -564,7 +564,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
 
     def _process_input(
         self,
-        x: torch.Tensor,
+        input: torch.Tensor,
         /,
         sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
@@ -574,9 +574,9 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         num_sample_dims = 0 if sample_shape is None else len(sample_shape)
 
         if input_contains_samples:
-            n, c, h, w = x.shape[num_sample_dims:]
+            n, c, h, w = input.shape[num_sample_dims:]
         else:
-            n, c, h, w = x.shape
+            n, c, h, w = input.shape
 
         p = self.patch_size
         torch._assert(
@@ -592,7 +592,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
 
         # (*sample_shape, n, c, h, w) -> (*sample_shape, n, hidden_dim, n_h, n_w)
         x = self.conv_proj(
-            x,
+            input,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=input_contains_samples,
@@ -612,20 +612,21 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
 
         return x
 
-    def forward(
+    def representation(
         self,
-        x: Float[Tensor, "*sample batch *in_feature"],
+        input: Float[Tensor, "*sample batch *in_feature"],
         /,
         sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        """Representation of the model."""
         num_sample_dims = 0 if sample_shape is None else len(sample_shape)
 
         # Reshape and permute the input tensor
         x = self._process_input(
-            x,
+            input,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=input_contains_samples,
@@ -651,14 +652,39 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         # Classifier "token" as used by standard language architectures
         x = torch.select(x, num_sample_dims + 1, 0)
 
-        x = self.heads(
+        x = self.heads[0:-1](
             x,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=True,
             parameter_samples=parameter_samples,
         )
+        return x
 
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch *in_feature"],
+        /,
+        sample_shape: torch.Size | None = torch.Size([]),
+        generator: torch.Generator | None = None,
+        input_contains_samples: bool = False,
+        parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
+    ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        x = self.representation(
+            input,
+            sample_shape=sample_shape,
+            generator=generator,
+            input_contains_samples=input_contains_samples,
+            parameter_samples=parameter_samples,
+        )
+
+        x = self.heads[-1](
+            x,
+            sample_shape=sample_shape,
+            generator=generator,
+            input_contains_samples=True,
+            parameter_samples=parameter_samples,
+        )
         return x
 
 
