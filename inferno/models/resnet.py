@@ -16,6 +16,7 @@ import torchvision
 
 from .. import bnn
 from ..bnn import params
+from ._utils import _check_cov
 
 if TYPE_CHECKING:
     from jaxtyping import Float
@@ -54,7 +55,9 @@ class ResNet(bnn.BNNMixin, nn.Module):
         ),
         architecture: Literal["imagenet", "cifar"] = "imagenet",
         parametrization: params.Parametrization = params.MaximalUpdate(),
-        cov: params.FactorizedCovariance | None = None,
+        cov: (
+            params.FactorizedCovariance | dict[params.FactorizedCovariance] | None
+        ) = None,
     ) -> None:
 
         super().__init__(parametrization=parametrization)
@@ -78,6 +81,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
         self.base_width = width_per_group
 
         # Layers
+        cov = _check_cov(cov, ["conv1", "fc"])
         if architecture == "cifar":
             self.conv1 = bnn.Conv2d(
                 3,
@@ -86,11 +90,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
                 stride=1,
                 padding=1,
                 bias=False,
-                cov=(
-                    copy.deepcopy(cov)
-                    if isinstance(cov, params.DiagonalCovariance)
-                    else None  # TODO: temporary only for last layer experiments
-                ),
+                cov=cov["conv1"],
                 parametrization=self.parametrization,
                 layer_type="input",
             )
@@ -102,11 +102,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
                 stride=2,
                 padding=3,
                 bias=False,
-                cov=(
-                    copy.deepcopy(cov)
-                    if isinstance(cov, params.DiagonalCovariance)
-                    else None  # TODO: temporary only for last layer experiments
-                ),
+                cov=cov["conv1"],
                 parametrization=self.parametrization,
                 layer_type="input",
             )
@@ -125,11 +121,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             64,
             num_blocks_per_layer[0],
             parametrization=parametrization,
-            cov=(
-                copy.deepcopy(cov)
-                if isinstance(cov, params.DiagonalCovariance)
-                else None
-            ),
+            cov=None,
             layer_type="hidden",
         )
         self.layer2 = self._make_layer(
@@ -139,11 +131,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             stride=2,
             dilate=replace_stride_with_dilation[0],
             parametrization=parametrization,
-            cov=(
-                copy.deepcopy(cov)
-                if isinstance(cov, params.DiagonalCovariance)
-                else None
-            ),
+            cov=None,
             layer_type="hidden",
         )
         self.layer3 = self._make_layer(
@@ -153,11 +141,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             stride=2,
             dilate=replace_stride_with_dilation[1],
             parametrization=parametrization,
-            cov=(
-                copy.deepcopy(cov)
-                if isinstance(cov, params.DiagonalCovariance)
-                else None
-            ),
+            cov=None,
             layer_type="hidden",
         )
         self.layer4 = self._make_layer(
@@ -167,11 +151,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             stride=2,
             dilate=replace_stride_with_dilation[2],
             parametrization=parametrization,
-            cov=(
-                copy.deepcopy(cov)
-                if isinstance(cov, params.DiagonalCovariance)
-                else None
-            ),
+            cov=None,
             layer_type="hidden",
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -179,7 +159,7 @@ class ResNet(bnn.BNNMixin, nn.Module):
             512 * block.expansion,
             out_size,
             parametrization=parametrization,
-            cov=copy.deepcopy(cov),
+            cov=cov["fc"],
             layer_type="output",
         )
 
