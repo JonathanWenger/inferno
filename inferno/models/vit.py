@@ -7,9 +7,8 @@ This implementation largely follows
 from __future__ import annotations
 
 from collections import OrderedDict
-import copy
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple
+from typing import TYPE_CHECKING, Callable, Iterator, Literal, NamedTuple
 
 import torch
 import torch.nn as nn
@@ -20,9 +19,11 @@ from . import MLP
 from .. import bnn
 from ..bnn import params
 from ..bnn.modules.bnn_mixin import (
-    parameters_and_lrs_of_torch_module,
+    BNNMixin,
+    named_parameter_groups_of_torch_module,
     reset_parameters_of_torch_module,
 )
+from ._check_cov import _check_cov
 
 if TYPE_CHECKING:
     from jaxtyping import Float
@@ -221,41 +222,61 @@ class Encoder(bnn.BNNMixin, nn.Module):
 
         reset_parameters_of_torch_module(self.ln, parametrization=self.parametrization)
 
-    def parameters_and_lrs(
+    def named_parameter_groups(
         self,
-        lr: float,
-        optimizer: Literal["SGD", "Adam"],
-    ) -> list[dict[str, Tensor | float]]:
-        """Get the parameters of the module and their learning rates for the chosen optimizer
-        and the parametrization of the module.
+        optimizer: Literal["SGD", "Adam", "NGD"],
+        lr: float | None = None,
+        prefix: str = "",
+    ) -> Iterator[tuple[str, dict[str, Tensor | float]]]:
+        """Return the parameters of a module sorted into named groups.
 
-        Needs to be implemented because Encoder has direct parameters.
-
-        :param lr: The global learning rate.
-        :param optimizer: The optimizer being used.
+        :param optimizer: The optimizer for which to return parameter groups.
+        :param lr: The global learning rate. Needs to be specified for SGD and Adam.
+        :param prefix: Prefix to add to the names of the parameter groups.
         """
+        prefix = prefix + "." if prefix != "" else prefix
 
-        param_groups = []
-
-        # direct parameters
-        param_groups += [
-            {
-                "name": "pos_embedding",
+        # Direct parameters
+        if optimizer in ["SGD", "Adam"]:
+            yield prefix + "params." + name, {
+                "param_names": [prefix + "pos_embedding"],
+                "module": prefix[:-1] if prefix.endswith(".") else prefix,
                 "params": [self.pos_embedding],
                 "lr": lr,
             }
-        ]
+        elif optimizer == "NGD":
+            yield prefix + "params." + name, {
+                "param_names": [prefix + "pos_embedding"],
+                "module": prefix[:-1] if prefix.endswith(".") else prefix,
+                "params": [self.pos_embedding],
+                "cov_params": None,
+                "lr": lr,
+            }
+        else:
+            raise ValueError(
+                f"Unknown optimizer '{optimizer}'. Cannot group parameters accordingly."
+            )
 
-        # child modules
-        param_groups += self.layers.parameters_and_lrs(lr=lr, optimizer=optimizer)
-        param_groups += parameters_and_lrs_of_torch_module(
-            self.ln,
-            lr=lr,
-            parametrization=self.parametrization,
-            optimizer=optimizer,
-        )
+        # Cycle through all children of the module and get their parameter groups.
+        for name, child in self.named_children():
 
-        return param_groups
+            if isinstance(child, BNNMixin):
+                # Recurse all the way to leaf modules.
+                yield from child.named_parameter_groups(
+                    prefix=prefix + name,
+                    optimizer=optimizer,
+                    lr=lr,
+                )
+            else:
+                # For torch leaf modules, return parameter groups.
+                yield from named_parameter_groups_of_torch_module(
+                    child,
+                    optimizer=optimizer,
+                    lr=lr,
+                    # For nn.Modules we need the parametrization to set learning rates.
+                    parametrization=self.parametrization,
+                    prefix=prefix + name,
+                )
 
     def forward(
         self,
@@ -612,36 +633,37 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
 
         return x
 
-    def forward(
+    def representation(
         self,
-        x: Float[Tensor, "*sample batch *in_feature"],
+        input: Float[Tensor, "*sample batch *in_feature"],
         /,
         sample_shape: torch.Size | None = torch.Size([]),
         generator: torch.Generator | None = None,
         input_contains_samples: bool = False,
         parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        """Representation of the model."""
         num_sample_dims = 0 if sample_shape is None else len(sample_shape)
 
         # Reshape and permute the input tensor
-        x = self._process_input(
-            x,
+        out = self._process_input(
+            input,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=input_contains_samples,
             parameter_samples=parameter_samples,
         )
-        n = x.shape[num_sample_dims]
+        n = out.shape[num_sample_dims]
 
         # Expand the class token to the full batch
         if sample_shape is not None:
             batch_class_token = self.class_token.expand(*sample_shape, n, -1, -1)
         else:
             batch_class_token = self.class_token.expand(n, -1, -1)
-        x = torch.cat([batch_class_token, x], dim=-2)
+        out = torch.cat([batch_class_token, out], dim=-2)
 
-        x = self.encoder(
-            x,
+        out = self.encoder(
+            out,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=True,
@@ -649,17 +671,35 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         )
 
         # Classifier "token" as used by standard language architectures
-        x = torch.select(x, num_sample_dims + 1, 0)
+        out = torch.select(out, num_sample_dims + 1, 0)
 
-        x = self.heads(
-            x,
+        out = self.heads[0:-1](
+            out,
             sample_shape=sample_shape,
             generator=generator,
             input_contains_samples=True,
             parameter_samples=parameter_samples,
         )
+        return out
 
-        return x
+    def forward(
+        self,
+        input: Float[Tensor, "*sample batch *in_feature"],
+        /,
+        sample_shape: torch.Size | None = torch.Size([]),
+        generator: torch.Generator | None = None,
+        input_contains_samples: bool = False,
+        parameter_samples: dict[str, Float[Tensor, "*sample parameter"]] | None = None,
+    ) -> Float[Tensor, "*sample *batch *out_feature"]:
+        out = self.representation(
+            input,
+            sample_shape=sample_shape,
+            generator=generator,
+            input_contains_samples=input_contains_samples,
+            parameter_samples=parameter_samples,
+        )
+        out = self.heads[-1](out)
+        return out
 
 
 class ViT_B_16(VisionTransformer):
@@ -865,31 +905,3 @@ class ViT_H_14(VisionTransformer):
             *args,
             **kwargs,
         )
-
-
-def _check_cov(
-    cov: params.FactorizedCovariance | dict[str, Any] | None,
-    required_cov_keys: list[str],
-):
-    """
-    Converts cov to a dictionary with required_cov_keys or fills in missing keys with default covariance None
-
-    :param cov: covariance or dictionary of covariances or None
-    :param required_cov_keys: covariance keys required by this module
-    """
-    if cov is None:
-        cov = {key: None for key in required_cov_keys}
-    elif isinstance(cov, params.FactorizedCovariance):
-        cov = {key: copy.deepcopy(cov) for key in required_cov_keys}
-    elif isinstance(cov, dict):
-
-        # check for unexpected covs
-        for key in cov.keys():
-            if key not in required_cov_keys:
-                raise ValueError(f"Covariance key {key} not recognized")
-
-        # set missing covs to default value (None)
-        for key in required_cov_keys:
-            if key not in cov.keys():
-                cov[key] = None
-    return cov

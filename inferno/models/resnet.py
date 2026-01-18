@@ -16,6 +16,7 @@ import torchvision
 
 from .. import bnn
 from ..bnn import params
+from ._check_cov import _check_cov
 
 if TYPE_CHECKING:
     from jaxtyping import Float
