@@ -34,17 +34,18 @@ def precondition(
         # TODO: should we set a threshold here so we don't zero gradients due to numerical instabilities?
         # Or: should we actually set the lr for the ones eigenvalues relative to the largest eigenvalue?
         # Seems like we get runoff effect after hitting edge of stability which is worse than for other optimizers.
-        # precond_factor = U * torch.concat(
-        #     [
-        #         S,
-        #         torch.ones(
-        #             (*S.shape[:-1], param_dim - cov_rank),
-        #             dtype=grad.dtype,
-        #             device=grad.device,
-        #         ),
-        #     ],
-        #     dim=-1,
-        # )
+        precond_factor = U * torch.concat(
+            [
+                S,
+                torch.ones(
+                    (*S.shape[:-1], param_dim - cov_rank),
+                    dtype=grad.dtype,
+                    device=grad.device,
+                )
+                * S[-1],  # Scale with smallest non-zero eigenvalue?
+            ],
+            dim=-1,
+        )
 
         # Lower bounded spectrum
         # U, L, V = torch.linalg.svd(precond_factor)
