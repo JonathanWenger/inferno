@@ -42,7 +42,7 @@ def precondition(
                     dtype=grad.dtype,
                     device=grad.device,
                 )
-                * S[-1],  # Scale with smallest non-zero eigenvalue?
+                * S[cov_rank],  # TODO: Scale with smallest non-zero eigenvalue?
             ],
             dim=-1,
         )
