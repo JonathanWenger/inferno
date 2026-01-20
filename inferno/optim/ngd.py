@@ -29,6 +29,7 @@ def precondition(
     # For a low-rank preconditioner, only precondition in the subspace corresponding to
     # non-zero eigenvalues of the preconditioner factor.
     if cov_rank < param_dim:
+
         U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
 
         # TODO: should we set a threshold here so we don't zero gradients due to numerical instabilities?
@@ -41,10 +42,8 @@ def precondition(
                     (*S.shape[:-1], param_dim - cov_rank),
                     dtype=grad.dtype,
                     device=grad.device,
-                ),
-                *S[
-                    cov_rank - 1
-                ],  # TODO: Scale with smallest non-zero eigenvalue? Seems to help for low rank models.
+                )
+                * S[-1],  # TODO: Scale with smallest non-zero eigenvalue?
             ],
             dim=-1,
         )
