@@ -41,8 +41,10 @@ def precondition(
                     (*S.shape[:-1], param_dim - cov_rank),
                     dtype=grad.dtype,
                     device=grad.device,
-                )
-                * S[cov_rank - 1],  # TODO: Scale with smallest non-zero eigenvalue?
+                ),
+                *S[
+                    cov_rank - 1
+                ],  # TODO: Scale with smallest non-zero eigenvalue? Seems to help for low rank models.
             ],
             dim=-1,
         )
