@@ -43,15 +43,16 @@ def precondition(
                         (*S.shape[:-1], param_dim - cov_rank),
                         dtype=grad.dtype,
                         device=grad.device,
-                    )
-                    * S[-1],  # TODO: Scale with smallest non-zero eigenvalue?
+                    ),
+                    # * S[-1],  # TODO: Scale with smallest non-zero eigenvalue?
                 ],
                 dim=-1,
             )
         except torch._C._LinAlgError:
             # When the covariance factor has a large condition number, we assume its smallest singular values are very small,
             # so we don't need to ensure the rest of the spectrum gets scaled appropriately.
-            # TODO: Alternatively, just add dampening to preconditioned_grad here?
+            # TODO: Alternatively, just add dampening to preconditioned_grad here? We need smoother penalization of error in SVD
+            # to retain good performance here.
             pass
 
         # Lower bounded spectrum
