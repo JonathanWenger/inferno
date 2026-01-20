@@ -79,6 +79,25 @@ import pytest
             torch.randn(64, 1, generator=torch.Generator().manual_seed(4958)),
         ),
         (
+            loss_fns.MSELoss,
+            loss_fns.MSELossVR,
+            models.MLP(
+                in_size=3,
+                hidden_sizes=[8, 8],
+                out_size=6,
+                bias=True,
+                cov=[
+                    None,
+                    None,
+                    bnn.params.FactorizedCovariance(),
+                ],
+            ),
+            torch.randn(32, 3, generator=torch.Generator().manual_seed(4958)),
+            torch.empty(32, dtype=torch.long).random_(
+                6, generator=torch.Generator().manual_seed(3244)
+            ),
+        ),
+        (
             loss_fns.CrossEntropyLoss,
             loss_fns.CrossEntropyLossVR,
             models.MLP(
@@ -214,6 +233,21 @@ def test_equals_expected_loss(
             torch.randn(64, 1, generator=torch.Generator().manual_seed(8932)),
         ),
         (
+            loss_fns.MSELoss,
+            loss_fns.MSELossVR,
+            models.MLP(
+                in_size=3,
+                hidden_sizes=[8, 8],
+                out_size=6,
+                bias=True,
+                cov=None,
+            ),
+            torch.randn(32, 3, generator=torch.Generator().manual_seed(4958)),
+            torch.empty(32, dtype=torch.long).random_(
+                6, generator=torch.Generator().manual_seed(3244)
+            ),
+        ),
+        (
             nn.CrossEntropyLoss,
             loss_fns.CrossEntropyLossVR,
             models.MLP(
@@ -307,6 +341,25 @@ def test_equals_torch_loss_for_deterministic_models(
             torch.randn(64, 1, generator=torch.Generator().manual_seed(4958)),
         ),
         (
+            loss_fns.MSELossVR(reduction="none"),
+            models.MLP(
+                in_size=3,
+                hidden_sizes=[8, 8, 8],
+                out_size=5,
+                cov=[
+                    bnn.params.FactorizedCovariance(),
+                    None,
+                    None,
+                    bnn.params.LowRankCovariance(4),
+                ],
+            ),
+            (32,),
+            torch.randn(32, 3, generator=torch.Generator().manual_seed(4958)),
+            torch.empty(32, dtype=torch.long).random_(
+                5, generator=torch.Generator().manual_seed(3244)
+            ),
+        ),
+        (
             loss_fns.CrossEntropyLossVR(reduction="none"),
             models.MLP(
                 in_size=6,
@@ -319,10 +372,7 @@ def test_equals_torch_loss_for_deterministic_models(
                     bnn.params.LowRankCovariance(4),
                 ],
             ),
-            (
-                5,
-                6,
-            ),
+            (5, 6),
             torch.randn((32, 6), generator=torch.Generator().manual_seed(42)),
             torch.empty(32, dtype=torch.long).random_(
                 5, generator=torch.Generator().manual_seed(3244)
@@ -410,10 +460,7 @@ def test_equals_torch_loss_for_deterministic_models(
                     bnn.params.LowRankCovariance(3),
                 ],
             ),
-            (
-                10,
-                32,
-            ),
+            (10, 32),
             torch.randn((32, 6), generator=torch.Generator().manual_seed(42)),
             torch.empty(32).random_(2, generator=torch.Generator().manual_seed(3244)),
         ),
@@ -437,4 +484,11 @@ def test_shape_for_no_reduction(
         target,
     )
 
-    assert loss_variance_reduced.shape == sample_shape + target.shape
+    target_shape = target.shape
+    if isinstance(
+        loss_fn_variance_reduced, loss_fns.MSELossVR
+    ) and not torch.is_floating_point(target):
+        # If targets are class labels, adjust target shape.
+        target_shape += (output_layer.out_features,)
+
+    assert loss_variance_reduced.shape == sample_shape + target_shape

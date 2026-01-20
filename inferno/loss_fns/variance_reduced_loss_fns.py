@@ -117,20 +117,38 @@ class MSELossVR(nn.modules.loss._Loss):
                         dim=-1,
                     )
 
-            variance_term = (
-                torch.einsum(
-                    "...f,fr->...r",
-                    input_representation,
-                    output_layer.params.cov._stacked_parameters(),
-                )
-                .pow(2)
-                .sum(-1)
-            )
-
             if output_layer.out_features == 1:
+                variance_term = (
+                    torch.einsum(
+                        "...f,fr->...r",
+                        input_representation,
+                        output_layer.params.cov._stacked_parameters(),
+                    )
+                    .pow(2)
+                    .sum(-1)
+                )
                 variance_term = variance_term.unsqueeze(-1)
             elif output_layer.out_features > 1:
-                raise NotImplementedError("Currently only supports 1D outputs.")
+                if list(output_layer.params.cov.factor.keys())[0] == "bias":
+                    # Ensure representation is padded with ones correctly depending on
+                    # which cov parameters correspond to the bias
+                    cov_params = (
+                        output_layer.params.cov.factor["bias"].unsqueeze(-2),
+                        output_layer.params.cov.factor["weight"],
+                    )
+                else:
+                    cov_params = (
+                        output_layer.params.cov.factor["weight"],
+                        output_layer.params.cov.factor["bias"].unsqueeze(-2),
+                    )
+                stacked_cov_params = torch.concatenate(cov_params, dim=-2)
+                variance_term = (
+                    torch.einsum(
+                        "...f,ofr->...or", input_representation, stacked_cov_params
+                    )
+                    .pow(2)
+                    .sum(-1)
+                )
 
             loss = mean_term + variance_term
         else:

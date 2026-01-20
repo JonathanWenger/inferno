@@ -22,6 +22,14 @@ import pytest
             torch.randn((10, 1), generator=torch.Generator().manual_seed(8343)),
         ),
         (
+            loss_fns.MSELoss(),
+            nn.MSELoss(),
+            torch.ones((6, 10, 5)),
+            torch.empty(10, dtype=torch.long).random_(
+                5, generator=torch.Generator().manual_seed(3244)
+            ),
+        ),
+        (
             loss_fns.L1Loss(),
             nn.L1Loss(),
             torch.randn(
@@ -167,6 +175,12 @@ def test_allows_computing_loss_with_samples(
     inferno_loss_fn.reduction = reduction
 
     inferno_loss = inferno_loss_fn(preds, targets)
+
+    # MSELoss applied to classes needs extra one-hot-encoding
+    if isinstance(torch_loss_fn, (nn.MSELoss)) and not torch.is_floating_point(targets):
+        targets = nn.functional.one_hot(targets, num_classes=preds.shape[-1]).to(
+            dtype=preds.dtype
+        )
 
     num_extra_dims = preds.ndim - targets.ndim
 

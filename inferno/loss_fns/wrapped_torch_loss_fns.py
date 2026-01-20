@@ -81,7 +81,16 @@ class MultipleBatchDimensionsLossMixin:
 
 
 class MSELoss(MultipleBatchDimensionsLossMixin, nn.MSELoss):
-    pass
+
+    def forward(self, pred: Tensor, target: Tensor) -> Tensor:
+
+        # If targets are classes, one-hot encode them.
+        if not torch.is_floating_point(target):
+            target = nn.functional.one_hot(target, num_classes=pred.shape[-1]).to(
+                dtype=pred.dtype
+            )
+
+        return super().forward(pred, target)
 
 
 class L1Loss(MultipleBatchDimensionsLossMixin, nn.L1Loss):
