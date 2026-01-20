@@ -52,7 +52,7 @@ def precondition(
             # When the covariance factor has a large condition number, we assume its smallest singular values are very small,
             # so we don't need to ensure the rest of the spectrum gets scaled appropriately.
             # TODO: Alternatively, just add dampening to preconditioned_grad here? We need smoother penalization of error in SVD
-            # to retain good performance here.
+            # to retain good performance here, especially when precond_factor = 0, then normalization blows up the gradient.
             pass
 
         # Lower bounded spectrum
