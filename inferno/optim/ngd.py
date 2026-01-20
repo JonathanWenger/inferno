@@ -30,23 +30,29 @@ def precondition(
     # non-zero eigenvalues of the preconditioner factor.
     if cov_rank < param_dim:
 
-        U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
+        try:
+            U, S, _ = torch.linalg.svd(precond_factor, full_matrices=True)
 
-        # TODO: should we set a threshold here so we don't zero gradients due to numerical instabilities?
-        # Or: should we actually set the lr for the ones eigenvalues relative to the largest eigenvalue?
-        # Seems like we get runoff effect after hitting edge of stability which is worse than for other optimizers.
-        precond_factor = U * torch.concat(
-            [
-                S,
-                torch.ones(
-                    (*S.shape[:-1], param_dim - cov_rank),
-                    dtype=grad.dtype,
-                    device=grad.device,
-                )
-                * S[-1],  # TODO: Scale with smallest non-zero eigenvalue?
-            ],
-            dim=-1,
-        )
+            # TODO: should we set a threshold here so we don't zero gradients due to numerical instabilities?
+            # Or: should we actually set the lr for the ones eigenvalues relative to the largest eigenvalue?
+            # Seems like we get runoff effect after hitting edge of stability which is worse than for other optimizers.
+            precond_factor = U * torch.concat(
+                [
+                    S,
+                    torch.ones(
+                        (*S.shape[:-1], param_dim - cov_rank),
+                        dtype=grad.dtype,
+                        device=grad.device,
+                    )
+                    * S[-1],  # TODO: Scale with smallest non-zero eigenvalue?
+                ],
+                dim=-1,
+            )
+        except torch._C._LinAlgError:
+            # When the covariance factor has a large condition number, we assume its smallest singular values are very small,
+            # so we don't need to ensure the rest of the spectrum gets scaled appropriately.
+            # TODO: Alternatively, just add dampening to preconditioned_grad here?
+            pass
 
         # Lower bounded spectrum
         # U, L, V = torch.linalg.svd(precond_factor)
@@ -64,7 +70,7 @@ def precondition(
         preconditioned_grad = preconditioned_grad / torch.linalg.vector_norm(
             preconditioned_grad, ord=2
         )
-        # TODO: is this normalization working correctly even for covariance matrices, or are we normalizing only column-wise?
+        # TODO: is this normalization working correctly even for covariance matrices, or should we be normalizing only column-wise?
 
     if not needs_squeezing:
         return preconditioned_grad
