@@ -21,6 +21,7 @@ from .resnet import (
 from .vit import (
     VisionTransformer,
     ViT_B_4,
+    ViT_B_8,
     ViT_B_16,
     ViT_B_32,
     ViT_H_14,
@@ -42,6 +43,7 @@ ___all__ = [
     "ResNeXt101_64X4D",
     "VisionTransformer",
     "ViT_B_4",
+    "ViT_B_8",
     "ViT_B_16",
     "ViT_B_32",
     "ViT_L_16",
