@@ -18,16 +18,7 @@ from .resnet import (
     WideResNet50,
     WideResNet101,
 )
-from .vit import (
-    VisionTransformer,
-    ViT_B_4,
-    ViT_B_8,
-    ViT_B_16,
-    ViT_B_32,
-    ViT_H_14,
-    ViT_L_16,
-    ViT_L_32,
-)
+from .vit import VisionTransformer, ViT_B_16, ViT_B_32, ViT_H_14, ViT_L_16, ViT_L_32
 
 ___all__ = [
     "Ensemble",
@@ -42,8 +33,6 @@ ___all__ = [
     "ResNeXt101_32X8D",
     "ResNeXt101_64X4D",
     "VisionTransformer",
-    "ViT_B_4",
-    "ViT_B_8",
     "ViT_B_16",
     "ViT_B_32",
     "ViT_L_16",
