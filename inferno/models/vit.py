@@ -706,7 +706,7 @@ class ViT_B_16(VisionTransformer):
             num_heads=12,
             hidden_dim=768,
             mlp_dim=3072,
-            dropout=0.2,  # TODO: Should this be the default for pretraining?
+            dropout=0.2,  # TODO: Should this be the new default for pretraining?
             **kwargs,
         )
 
@@ -725,6 +725,7 @@ class ViT_B_16(VisionTransformer):
             out_size=out_size,
             weights=weights,
             freeze=freeze,
+            dropout=0.0,  # TODO: While finetuning doesn't use dropout as per torchvision.
             *args,
             **kwargs,
         )
@@ -767,6 +768,7 @@ class ViT_B_32(VisionTransformer):
             out_size=out_size,
             weights=weights,
             freeze=freeze,
+            dropout=0.0,  # TODO: While finetuning doesn't use dropout as per torchvision.
             *args,
             **kwargs,
         )
