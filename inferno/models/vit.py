@@ -7,9 +7,8 @@ This implementation largely follows
 from __future__ import annotations
 
 from collections import OrderedDict
-import copy
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple
+from typing import TYPE_CHECKING, Callable, Literal, NamedTuple
 
 import torch
 import torch.nn as nn
@@ -707,6 +706,7 @@ class ViT_B_16(VisionTransformer):
             num_heads=12,
             hidden_dim=768,
             mlp_dim=3072,
+            dropout=0.2,  # TODO: Should this be the default for pretraining?
             **kwargs,
         )
 
@@ -748,6 +748,7 @@ class ViT_B_32(VisionTransformer):
             num_heads=12,
             hidden_dim=768,
             mlp_dim=3072,
+            dropout=0.2,  # TODO: Should this be the default for pretraining?
             **kwargs,
         )
 
