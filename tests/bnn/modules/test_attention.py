@@ -13,6 +13,7 @@ import pytest
     "kdim,vdim,is_self_attention",
     [(None, None, False), (None, None, True), (2, 3, False)],
 )
+@pytest.mark.parametrize("fused_attn", [True, False])
 @pytest.mark.parametrize(
     "cov",
     [None, {"q": None, "k": None, "v": params.FactorizedCovariance(), "out": None}],
@@ -23,6 +24,7 @@ def test_generalizes_pytorch_multi_head_attention_layer(
     kdim,
     vdim,
     is_self_attention,
+    fused_attn,
     cov,
 ):
     """Test whether the BNN attention layer generalizes the PyTorch attention layer."""
@@ -44,6 +46,7 @@ def test_generalizes_pytorch_multi_head_attention_layer(
         kdim=kdim,
         vdim=vdim,
         bias=is_self_attention,
+        fused_attn=fused_attn,
         cov=cov,
     )
     attn_inferno.load_state_dict(attn_torch.state_dict(), strict=False)
@@ -90,8 +93,9 @@ def test_generalizes_pytorch_multi_head_attention_layer(
         (2, 3, False, False),
     ],
 )
+@pytest.mark.parametrize("fused_attn", [True, False])
 def test_forward_is_deterministic_given_generator(
-    seed, kdim, vdim, is_self_attention, is_causal
+    seed, kdim, vdim, is_self_attention, is_causal, fused_attn
 ):
     """Test whether the forward method is deterministic given a generator."""
     generator = torch.Generator().manual_seed(262345)
@@ -101,6 +105,7 @@ def test_forward_is_deterministic_given_generator(
         num_heads=4,
         kdim=kdim,
         vdim=vdim,
+        fused_attn=fused_attn,
         cov=params.FactorizedCovariance(),
     )
 

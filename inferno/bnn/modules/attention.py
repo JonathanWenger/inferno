@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -35,6 +36,8 @@ class MultiheadAttention(BNNMixin, nn.Module):
     :param vdim: Dimensionality of the value embeddings.
     :param embed_dim_out: Dimensionality of the output embeddings. If ``None``, set to ``embed_dim``.
     :param out_proj: Whether to include the output projection layer.
+    :param fused_attn: Should fused attention be used, which is more efficient, or should attention weights
+        be computed explicitly (e.g. for interpretability).
     :param cov: Covariance structure of the weights. Either a single covariance structure used in all
         linear projections, or a dictionary with keys ``k``, ``q``, ``v`` and ``out`` and values containing
         either covariance structures or ``None``.
@@ -56,6 +59,7 @@ class MultiheadAttention(BNNMixin, nn.Module):
         vdim: int | None = None,
         embed_dim_out: int | None = None,
         out_proj: bool = True,
+        fused_attn: bool = True,
         cov: (
             params.FactorizedCovariance | dict[params.FactorizedCovariance] | None
         ) = None,
@@ -76,6 +80,7 @@ class MultiheadAttention(BNNMixin, nn.Module):
             raise ValueError("Embedding dimension is not divisible by num_heads.")
         self.head_dim = embed_dim // num_heads
         self.embed_dim_out = embed_dim_out if embed_dim_out is not None else embed_dim
+        self.fused_attn = fused_attn
 
         if cov is None:
             cov = {key: None for key in ["q", "k", "v", "out"]}
@@ -206,16 +211,27 @@ class MultiheadAttention(BNNMixin, nn.Module):
         # since the output of each linear layer gets expanded to the number of samples.
         # Make sure in that case we only expand the output to the number of samples when needed.
 
-        # (batch_size, num_heads, seq_length_out, embed_dim_head)
-        attn_output = F.scaled_dot_product_attention(
-            query,
-            key,
-            value,
-            attn_mask=attn_mask,
-            dropout_p=self.dropout,
-            is_causal=is_causal,
-            scale=None,  # Defaults to 1/sqrt(embed_dim)
-        )
+        if self.fused_attn:
+            # (batch_size, num_heads, seq_length_out, embed_dim_head)
+            attn_output = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout,
+                is_causal=is_causal,
+                scale=None,  # Defaults to 1/sqrt(embed_dim)
+            )
+        else:
+            attn_output, attn_weights = _scaled_dot_product_attention_non_fused(
+                query,
+                key,
+                value,
+                attn_mask=attn_mask,
+                is_causal=is_causal,
+                scale=None,  # Defaults to 1/sqrt(embed_dim)
+            )
+
         # (batch_size, num_heads, seq_length_out, embed_dim_head)
         # -> (batch_size, seq_length_out, num_heads, embed_dim_head)
         # -> (batch_size, seq_length_out, embed_dim_all_heads)
@@ -288,3 +304,58 @@ class MultiheadAttention(BNNMixin, nn.Module):
             unexpected_keys,
             error_msgs,
         )
+
+
+def _scaled_dot_product_attention_non_fused(
+    query: Float[Tensor, "*sample batch query_token embed_dim"],
+    key: Float[Tensor, "*sample batch keyval_token embed_dim_k"] | None,
+    value: Float[Tensor, "*sample batch token embed_dim_v"] | None,
+    attn_mask: Float[Tensor, "batch query_token keyval_token"] | None = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float | None = None,
+) -> tuple[
+    Float[Tensor, "*sample batch query_token embed_dim_v"],
+    Float[Tensor, "*sample batch query_token keyval_token"],
+]:
+    """Non-fused implementation of scaled dot-product attention.
+
+    :param query: Query tensor.
+    :param key: Key tensor.
+    :param value: Value tensor.
+    :param attn_mask: Attention mask; shape must be broadcastable to the shape of attention weights,
+        which is (N, ..., L, S). Two types of masks are supported:
+        - A boolean mask where a value of True indicates that the element should take part in attention.
+        - A float mask of the same type as query, key, value that is added to the attention score.
+    :param dropout_p: Dropout probability; if greater than 0.0, dropout is applied.
+        (see torch.nn.attention.bias.CausalBias) when the mask is a non-square matrix.
+    :param scale: Scaling factor applied prior to softmax. If None, the default value is set to 1/sqrt(E).
+    """
+
+    if scale is None:
+        scale = 1 / math.sqrt(query.size(-1))
+
+    attn_scores = torch.matmul(query, key.transpose(-2, -1))
+    attn_scores = attn_scores * scale
+
+    if attn_mask is not None:
+        # Fills masked positions with a large negative value (-inf) so they become 0 after softmax
+        attn_scores = attn_scores.masked_fill(attn_mask, float("-inf"))
+
+    if is_causal:
+        # Create a causal mask if requested (used in decoders)
+        seq_len = query.size(-2)
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=query.device, dtype=torch.bool),
+            diagonal=1,
+        )
+        attn_scores = attn_scores.masked_fill(causal_mask, float("-inf"))
+
+    attn_weights = F.softmax(attn_scores, dim=-1)
+
+    if dropout_p > 0.0:
+        attn_weights = F.dropout(attn_weights, p=dropout_p)
+
+    attn_output = torch.matmul(attn_weights, value)
+
+    return attn_output, attn_weights

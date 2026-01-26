@@ -276,9 +276,12 @@ def batched_forward(obj: nn.Module, num_batch_dims: int) -> Callable[
         input: Float[Tensor, "*sample *batch *in_feature"],
     ) -> Float[Tensor, "*sample *batch *out_feature"]:
         flattened_input = input.flatten(start_dim=0, end_dim=num_batch_dims - 2)
-        flattened_output = torch.vmap(obj.__call__, in_dims=0, out_dims=0)(
-            flattened_input
-        )
+        flattened_output = torch.vmap(
+            obj.__call__,
+            in_dims=0,
+            out_dims=0,
+            randomness="same",  # TODO: should the randomness across samples be the same or not?
+        )(flattened_input)
         return flattened_output.unflatten(0, input.shape[: num_batch_dims - 1])
 
     return batched_forward_helper

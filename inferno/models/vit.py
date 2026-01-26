@@ -95,6 +95,7 @@ class EncoderBlock(bnn.BNNMixin, nn.Module):
         mlp_dim: int,
         dropout: float,
         attention_dropout: float,
+        fused_attn: bool = True,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
         parametrization: params.Parametrization = params.MaximalUpdate(),
         cov: (
@@ -111,6 +112,7 @@ class EncoderBlock(bnn.BNNMixin, nn.Module):
             hidden_dim,
             num_heads,
             dropout=attention_dropout,
+            fused_attn=fused_attn,
             parametrization=parametrization,
             cov=cov["self_attention"],
         )
@@ -172,6 +174,7 @@ class Encoder(bnn.BNNMixin, nn.Module):
         mlp_dim: int,
         dropout: float,
         attention_dropout: float,
+        fused_attn: bool = True,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
         parametrization: params.Parametrization = params.MaximalUpdate(),
         cov: (
@@ -193,12 +196,13 @@ class Encoder(bnn.BNNMixin, nn.Module):
         layers: OrderedDict[str, nn.Module] = OrderedDict()
         for i in range(num_layers):
             layers[f"encoder_layer_{i}"] = EncoderBlock(
-                num_heads,
-                hidden_dim,
-                mlp_dim,
-                dropout,
-                attention_dropout,
-                norm_layer,
+                num_heads=num_heads,
+                hidden_dim=hidden_dim,
+                mlp_dim=mlp_dim,
+                dropout=dropout,
+                attention_dropout=attention_dropout,
+                fused_attn=fused_attn,
+                norm_layer=norm_layer,
                 parametrization=parametrization,
                 cov=cov[f"layers.encoder_layer_{i}"],
             )
@@ -336,7 +340,9 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
     :param attention_dropout: Attention dropout probability.
     :param out_size: Size of the output (i.e. number of classes).
     :param representation_size: Size of pre-logits layer before output head.
-    :param norm_layer:  Normalization layer to use.
+    :param norm_layer: Normalization layer to use.
+    :param fused_attn: Should fused attention be used, which is more efficient, or should attention weights
+        be computed explicitly (e.g. for interpretability).
     :param conv_stem_configs: Currently not supported.
     :param parametrization: The parametrization to use. Defines the initialization
         and learning rate scaling for the parameters of the module.
@@ -356,6 +362,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         out_size: int = 1000,
         representation_size: int | None = None,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
+        fused_attn: bool = True,
         conv_stem_configs: list[NamedTuple] | None = None,
         parametrization: params.Parametrization = params.MaximalUpdate(),
         cov: (
@@ -388,6 +395,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         cov = _check_cov(
             cov, ["conv_proj", "encoder", "heads.pre_logits", "heads.head"]
         )
+        self.fused_attn = fused_attn
 
         if conv_stem_configs is not None:
             # As per https://arxiv.org/abs/2106.14881
@@ -413,14 +421,15 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         seq_length += 1
 
         self.encoder = Encoder(
-            seq_length,
-            num_layers,
-            num_heads,
-            hidden_dim,
-            mlp_dim,
-            dropout,
-            attention_dropout,
-            norm_layer,
+            seq_length=seq_length,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            hidden_dim=hidden_dim,
+            mlp_dim=mlp_dim,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            norm_layer=norm_layer,
+            fused_attn=self.fused_attn,
             parametrization=parametrization,
             cov=cov["encoder"],
         )
@@ -453,6 +462,8 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
             )
 
         self.heads = bnn.Sequential(heads_layers)
+        self.all_but_last_head = self.heads[0:-1]
+        self.fc = self.heads[-1]
 
         # Reset parameters (note this replaces torchvision initialization)
         self.reset_parameters()
@@ -652,7 +663,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         # Classifier "token" as used by standard language architectures
         x = torch.select(x, num_sample_dims + 1, 0)
 
-        x = self.heads[0:-1](
+        x = self.all_but_last_head(
             x,
             sample_shape=sample_shape,
             generator=generator,
@@ -678,7 +689,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
             parameter_samples=parameter_samples,
         )
 
-        x = self.heads[-1](
+        x = self.fc(
             x,
             sample_shape=sample_shape,
             generator=generator,
@@ -706,7 +717,6 @@ class ViT_B_16(VisionTransformer):
             num_heads=12,
             hidden_dim=768,
             mlp_dim=3072,
-            dropout=0.2,  # TODO: Should this be the new default for pretraining?
             **kwargs,
         )
 
@@ -725,7 +735,6 @@ class ViT_B_16(VisionTransformer):
             out_size=out_size,
             weights=weights,
             freeze=freeze,
-            dropout=0.0,  # TODO: While finetuning doesn't use dropout as per torchvision.
             *args,
             **kwargs,
         )
@@ -749,7 +758,6 @@ class ViT_B_32(VisionTransformer):
             num_heads=12,
             hidden_dim=768,
             mlp_dim=3072,
-            dropout=0.2,  # TODO: Should this be the default for pretraining?
             **kwargs,
         )
 
@@ -768,7 +776,6 @@ class ViT_B_32(VisionTransformer):
             out_size=out_size,
             weights=weights,
             freeze=freeze,
-            dropout=0.0,  # TODO: While finetuning doesn't use dropout as per torchvision.
             *args,
             **kwargs,
         )
