@@ -315,7 +315,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
                 "mlp": copy.deepcopy(cov)
             },
         },
-        "heads.head": copy.deepcopy(cov),
+        "fc": copy.deepcopy(cov),
     }
     model = VisionTransformer(
         in_size=32,
@@ -392,9 +392,7 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
                 "See also: https://pytorch.org/docs/stable/func.batch_norm.html#patching-batch-norm."
             )
         self.norm_layer = norm_layer
-        cov = _check_cov(
-            cov, ["conv_proj", "encoder", "heads.pre_logits", "heads.head"]
-        )
+        cov = _check_cov(cov, ["conv_proj", "encoder", "pre_head.pre_logits", "fc"])
         self.fused_attn = fused_attn
 
         if conv_stem_configs is not None:
@@ -435,35 +433,31 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         )
         self.seq_length = seq_length
 
-        heads_layers: OrderedDict[str, nn.Module] = OrderedDict()
-        if representation_size is None:
-            heads_layers["head"] = bnn.Linear(
-                hidden_dim,
-                out_size,
-                parametrization=parametrization,
-                cov=cov["heads.head"],
-                layer_type="output",
-            )
+        if self.representation_size is None:
+            self.pre_head = None
         else:
-            heads_layers["pre_logits"] = bnn.Linear(
+            pre_head_layers: OrderedDict[str, nn.Module] = OrderedDict()
+            pre_head_layers["pre_logits"] = bnn.Linear(
                 hidden_dim,
                 representation_size,
                 parametrization=parametrization,
-                cov=cov["heads.pre_logits"],
+                cov=cov["pre_head.pre_logits"],
                 layer_type="hidden",
             )
-            heads_layers["act"] = nn.Tanh()
-            heads_layers["head"] = bnn.Linear(
-                representation_size,
-                out_size,
-                parametrization=parametrization,
-                cov=cov["heads.head"],
-                layer_type="output",
-            )
+            pre_head_layers["act"] = nn.Tanh()
+            self.pre_head = bnn.Sequential(pre_head_layers)
 
-        self.heads = bnn.Sequential(heads_layers)
-        self.all_but_last_head = self.heads[0:-1]
-        self.fc = self.heads[-1]
+        self.fc = bnn.Linear(
+            (
+                self.representation_size
+                if self.representation_size is not None
+                else hidden_dim
+            ),
+            out_size,
+            parametrization=parametrization,
+            cov=cov["fc"],
+            layer_type="output",
+        )
 
         # Reset parameters (note this replaces torchvision initialization)
         self.reset_parameters()
@@ -522,6 +516,22 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
 
         return model
 
+    def load_state_dict(
+        self, state_dict: dict, strict: bool = True, assign: bool = False
+    ):
+        # Ensure correct key mapping for heads if torchvision state_dict is loaded.
+        torchvision_to_inferno_key_map = {
+            "heads.pre_logits.weight": "pre_head.pre_logits.weight",
+            "heads.pre_logits.bias": "pre_head.pre_logits.bias",
+            "heads.head.weight": "fc.weight",
+            "heads.head.bias": "fc.bias",
+        }
+        state_dict = {
+            torchvision_to_inferno_key_map.get(k, k): v for k, v in state_dict.items()
+        }
+
+        return super().load_state_dict(state_dict, strict, assign)
+
     def reset_parameters(self) -> None:
         """Reset the parameters of the module and set the parametrization of all children
         to the parametrization of the module.
@@ -535,11 +545,15 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         # Child modules
         self.conv_proj.parametrization = self.parametrization
         self.encoder.parametrization = self.parametrization
-        self.heads.parametrization = self.parametrization
+        if self.pre_head is not None:
+            self.pre_head.parametrization = self.parametrization
+        self.fc.parametrization = self.parametrization
 
         self.conv_proj.reset_parameters()
         self.encoder.reset_parameters()
-        self.heads.reset_parameters()
+        if self.pre_head is not None:
+            self.pre_head.reset_parameters()
+        self.fc.reset_parameters()
 
     def parameters_and_lrs(
         self,
@@ -569,7 +583,9 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         # Child modules
         param_groups += self.conv_proj.parameters_and_lrs(lr=lr, optimizer=optimizer)
         param_groups += self.encoder.parameters_and_lrs(lr=lr, optimizer=optimizer)
-        param_groups += self.heads.parameters_and_lrs(lr=lr, optimizer=optimizer)
+        if self.pre_head is not None:
+            param_groups += self.pre_head.parameters_and_lrs(lr=lr, optimizer=optimizer)
+        param_groups += self.fc.parameters_and_lrs(lr=lr, optimizer=optimizer)
 
         return param_groups
 
@@ -663,13 +679,14 @@ class VisionTransformer(bnn.BNNMixin, nn.Module):
         # Classifier "token" as used by standard language architectures
         x = torch.select(x, num_sample_dims + 1, 0)
 
-        x = self.all_but_last_head(
-            x,
-            sample_shape=sample_shape,
-            generator=generator,
-            input_contains_samples=True,
-            parameter_samples=parameter_samples,
-        )
+        if self.pre_head is not None:
+            x = self.pre_head(
+                x,
+                sample_shape=sample_shape,
+                generator=generator,
+                input_contains_samples=True,
+                parameter_samples=parameter_samples,
+            )
         return x
 
     def forward(
