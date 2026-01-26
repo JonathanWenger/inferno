@@ -280,7 +280,7 @@ def batched_forward(obj: nn.Module, num_batch_dims: int) -> Callable[
             obj.__call__,
             in_dims=0,
             out_dims=0,
-            randomness="same",  # TODO: should the randomness across samples be the same or not?
+            # randomness="same",  # TODO: should the randomness across samples be the same or not (e.g. for dropout)?
         )(flattened_input)
         return flattened_output.unflatten(0, input.shape[: num_batch_dims - 1])
 
